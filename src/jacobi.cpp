@@ -1,3 +1,7 @@
+/* Ишутин Андрей (Ishutin Andrei)
+        telegram: @looks_amazing
+        Github: Andy-823 */
+
 #include <iostream>
 #include <iomanip>
 
@@ -8,10 +12,8 @@
 #include <eigen3/eigen/core>
 
 /*
-    обязательное условие:
-        строк в матрице не больше чем столбцов
-    название статьи:
-        On Speeding-up Parallel Jacobi Iterations for SVD
+    здесь строк в матрице не больше чем столбцов
+    статья: On Speeding-up Parallel Jacobi Iterations for SVD
     никакой параллельности здесь пока что нет
     про матрицы https://eigen.tuxfamily.org/dox/group__TutorialMatrixClass.html
     возвращаемый тип такой, поскольку матрицы имеют разный размер
@@ -23,6 +25,8 @@
     наиболее хорошие варианты:
         std::array https://en.cppreference.com/w/cpp/container/array
         std::tuple https://en.cppreference.com/w/cpp/utility/tuple
+
+    TODO: изменение матриц по ссылке
 */
 template<typename T, int N, int M>
 inline std::tuple<Eigen::Matrix<T, N, N>, Eigen::Matrix<T, N, M>, Eigen::Matrix<T, M, M>>
@@ -81,10 +85,10 @@ JTS_SVD_base(Eigen::Matrix<T, N, M> &B, const float tau, const float eps, const 
         {            
             T gamma = (B.col(j).squaredNorm() - B.col(i).squaredNorm()) / (2 * B.col(i).dot(B.col(j)));
             T t = 1 / (std::abs(gamma) + std::sqrt(gamma * gamma + 1));
-            t *= gamma != 0 ? gamma / std::abs(gamma) : 0; // для работы с комлексными
+            t *= gamma != 0 ? gamma / std::abs(gamma) : 0; // для работы с комлексными, если они допустмы
             T c = 1 / std::sqrt(1 + t * t);
             T s = t * c;
-            // матрицу нельзя менять прямо сразу
+            // матрицу нельзя менять in-place
             using col_b = Eigen::Matrix<T, 1, N>;
             using col_v = Eigen::Matrix<T, 1, M>;
             col_b col_bi = B.col(i);
