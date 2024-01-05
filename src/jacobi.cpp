@@ -61,7 +61,7 @@ JTS_SVD_base(Eigen::Matrix<T, N, M> &B, const float tau, const float eps, const 
                 // https://eigen.tuxfamily.org/dox/group__TutorialBlockOperations.html
                 // в будущем это надо будет параллелить
                 T b = std::abs(B.col(i).dot(B.col(j)));
-                pivots.push_back(std::make_tuple(b, i, j));
+                pivots.emplace_back(b, i, j);
             }
         }
         int count_left = pivots.size() * tau;
@@ -105,10 +105,11 @@ JTS_SVD_base(Eigen::Matrix<T, N, M> &B, const float tau, const float eps, const 
     }
 
     std::vector<std::pair<T, int>> norms(m);
+    T norm;
     for (int i = 0; i < m; ++i)
     {
         // B больше не нужна по сути, мы ее приводим к нужному виду прост
-        T norm = B.col(i).norm();
+        norm = B.col(i).norm();
         norms[i] = std::make_pair(norm, i);
         B.col(i) /= norm;
     }
