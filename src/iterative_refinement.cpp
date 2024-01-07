@@ -11,7 +11,8 @@
 
 
 /*Название статьи:  Uchino Yuki, Terao Takeshi, Ozaki Katsuhisa. 2022.08.05 – Acceleration of 
-Iterative Refinement for Singular Value Decomposition. 10.21203/rs.3.rs1931986/v1
+Iterative Refinement for Singular Value Decomposition.
+(https://www.researchgate.net/publication/362642883_Acceleration_of_Iterative_Refinement_for_Singular_Value_Decomposition)
 * Обязательные условия: 1)в матрицах колво строк больше или равному количеству столбцов
 *2)каждое сингулярное значение больше последующего (d1>d2>...>dn)
 * 3)каждое приближенное сингулярное значение отлично друг от друга (di != dj для i!=j)
@@ -21,32 +22,42 @@ Iterative Refinement for Singular Value Decomposition. 10.21203/rs.3.rs1931986/
 
 
 
-std::tuple<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>>
-MSVD_SVD(const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> &A, const  Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> &Ui, const  Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> &Vi)
+template<typename T>
+ std::tuple<Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>>
+MSVD_SVD(const Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> &A, const  Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> &Ui, const  Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> &Vi)
 {
-    const int m = A.rows();
+    const int m = A.rows();//Получаем размеры изначальной матрицы
     const int n = A.cols();
+
 
     if ( A.rows()< A.cols())
     {
         std::cout << "Attention! Number of the rows must be greater or equal  than  number of the columns";
-        return std::make_tuple(Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Constant(m, m, 0.0), Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Constant(n, n, 0.0),
-            Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Constant(m, n, 0.0));
+        return std::make_tuple(Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>::Constant(m, m, (T)0.0), Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>::Constant(n, n, (T)0.0),
+            Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>::Constant(m, n, (T)0.0));
     }
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> Ad = A.cast<double>();
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> Ud = Ui.cast<double>();
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> Vd = Vi.cast<double>();
+   using matrix_dd = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>;
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> P = Ad * Vd;
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> Q = Ad.transpose() * Ud.block(0,0,m, n);
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> ViT = Vd.transpose();
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> UiT = Ud.transpose();
+    matrix_dd Ad = A.cast<double>();//Согласно нашему алгоритму все почти все вычисления должны 
+    matrix_dd Ud = Ui.cast<double>();//производится с двойной точностью, поэтому переделываем тип
+    matrix_dd Vd = Vi.cast<double>();//всех матриц в double
+    //Далее все тип всех элементов также будет double. Но в конце, все матрицу будут приведены к
+    //изначальному типу.
+
+    matrix_dd Udmn = Ud.block(0, 0, m, n);
+
+
+    matrix_dd P = Ad * Vd;
+    matrix_dd Q = Ad.transpose() * Udmn;
+
+    matrix_dd ViT = Vd.transpose();
+    matrix_dd UiT = Ud.transpose();
     std::vector<double> r (n, 0.0);
     std::vector<double> s (n, 0.0);
     std::vector<double> t (n, 0.0);
-    Eigen::Matrix<double, Eigen::Dynamic,Eigen::Dynamic> Sigma_n(n,n);
+    matrix_dd Sigma_n(n,n);
     Sigma_n.setZero();
 
     for (int i = 0; i < n; i++)
@@ -58,65 +69,75 @@ MSVD_SVD(const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> &A, const  E
 
     };
 
-    Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic> Sigma(m,n);
+    matrix_dd Sigma(m,n);//Матрица сингулярных значений
     Sigma.setZero();
     Sigma.block(0,0,n, n) = Sigma_n.transpose();
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> Cgamma = P - Ud.block(0,0,m, n) * Sigma_n;
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> Cdelta = Q - Vd * Sigma_n;
+    matrix_dd Cgamma = P - Udmn * Sigma_n;
+    matrix_dd Cdelta = Q - Vd * Sigma_n;
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> Calpha = Ud.block(0,0, m, n).transpose() * Cgamma;
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> Cbetta = ViT * Cdelta;
+    matrix_dd Calpha = Udmn.transpose() * Cgamma;
+    matrix_dd Cbetta = ViT * Cdelta;
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> D = Sigma_n * Calpha + Cbetta * Sigma_n;
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> E = Calpha * Sigma_n + Sigma_n * Cbetta;
+    matrix_dd D = Sigma_n * Calpha + Cbetta * Sigma_n;
+    matrix_dd E = Calpha * Sigma_n + Sigma_n * Cbetta;
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> G(n,n);
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> F11(n, n);
+    matrix_dd G(n,n);//Матрица, необходимая для более точного вычисления правых сингулярных векторов
+    matrix_dd F11(n, n);
 
-    for (int i = 0; i < n; i++)
+    double temp1;//Временные переменные, необходимые для более быстрого вычисления элементов матриц
+    double temp2;//G и F11
+
+    for (int i = 0; i < n; i++)//Вычисление элементов матриц G и F11
     {
+        temp1 = Sigma_n(i, i) * Sigma_n(i, i);
+
         for (int j = 0; j < n; j++)
         {
-            G(i, j) = D(i, j) / (Sigma_n(j,j) * Sigma_n(j,j) - Sigma_n(i,i) * Sigma_n(i,i));
-            F11(i, j) = E(i, j) / (Sigma_n(j,j) * Sigma_n(j,j) - Sigma_n(i,i) * Sigma_n(i,i));
+            temp2 = Sigma_n(j, j) * Sigma_n(j, j);
+
+            G(i, j) = D(i, j) / (temp2 - temp1);//Значение диагональных элементов не должно равняться 
+            F11(i, j) = E(i, j) / (temp2 - temp1);//бесконечности. Оно будет пересчитано
         }
     }
 
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < n; i++)//Пересчет диагональных элементов для матриц G и F11
     {
         G(i, i) = s[i] * 0.5;
         F11(i, i) = r[i] * 0.5;
     }
 
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic > F12(n, m-n);
+    matrix_dd F12(n, m-n);
     F12 = Sigma_n.inverse() * P.transpose() * Ud.block(0, n, m, m - n);
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> F21 = Ud.block(0,n-1,m, m - n).transpose() * Cgamma * Sigma_n.inverse();
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic > F22 = 0.5 * (Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>::Constant(m - n, m - n, 1.0) -
+    matrix_dd F21 = Ud.block(0,n-1,m, m - n).transpose() * Cgamma * Sigma_n.inverse();
+    matrix_dd F22 = 0.5 * (matrix_dd::Constant(m - n, m - n, 1.0) -
         Ud.block(0,n-1,m, m - n).transpose() * Ud.block(0, n, m, m - n));
 
 
     
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic > F(m,m);
+    matrix_dd F(m,m); //Матрица, необходимая для более точного вычисления левых сингулярных векторов
     F.block(0, 0, n, n) = F11;
     F.block(0, n , n, m-n) = F12;
     F.block(n, 0, m-n, n) = F21;
     F.block(n , n, m - n, m - n) = F22;
 
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic > U = Ud+ Ud*F;
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic > V = Vd + Vd * G;
+    matrix_dd U = Ud+ Ud*F;//Вычисление уточнённых значений левых сингулярных векторов
+    matrix_dd V = Vd + Vd * G;//Вычисление уточнённых значений правых сингулярных векторов
 
 
-   return std::make_tuple(U, V, Sigma);
+   return std::make_tuple(U.cast<T>(), V.cast<T>(), Sigma.cast<T>()); // Приведение матриц к изначальному типу
 }
 
-std::tuple<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>>
-Accurate_BDCSVD(const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> &A)
+
+template<typename T>
+inline std::tuple<Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>>
+Accurate_BDCSVD(const Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> &A)
 {
-    Eigen::BDCSVD< Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>> svd(A, Eigen::ComputeFullU | Eigen::ComputeFullV);
-    return  MSVD_SVD(A, svd.matrixU(), svd.matrixV());
+    Eigen::BDCSVD< Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>> svd(A, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    //Неточный расчёт левых и правых сингулярных векторов с помощью функции из библиотеки Eigen
+    return  MSVD_SVD(A, svd.matrixU(), svd.matrixV());// Уточнение результата нашей функцией 
 }
 
 int main()
@@ -136,7 +157,7 @@ int main()
         3, 9, (float)4.98942, (float)0.324235,  443534, 345, (float)56.543853, (float)450.435234, (float)43.34353221;
 
    BDCSVD<MatrixXf> svd(A, ComputeFullU | ComputeFullV);
-   std::tuple<Eigen::Matrix<double, 10, 10>, Eigen::Matrix<double, 9, 9>, Eigen::Matrix<double, 10, 9>> a =
+   std::tuple<Eigen::Matrix<float, 10, 10>, Eigen::Matrix<float, 9, 9>, Eigen::Matrix<float, 10, 9>> a =
        Accurate_BDCSVD(A);
    std::cout << get<0>(a)*get<2>(a)*get<1>(a).transpose() <<"\n" << "\n";
     Array<float,1, Dynamic> sigm(9);
