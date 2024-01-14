@@ -1,6 +1,8 @@
-/* Ишутин Андрей (Ishutin Andrei)
-        telegram: @looks_amazing
-        Github: Andy-823 */
+/* 
+ * Ишутин Андрей (Ishutin Andrei)
+ * telegram: @looks_amazing
+ * Github: Andy-823 
+ */
 
 #include <iostream>
 #include <iomanip>
@@ -12,25 +14,27 @@
 #include <eigen3/eigen/core>
 
 /*
-    здесь строк в матрице не больше чем столбцов
-    статья: On Speeding-up Parallel Jacobi Iterations for SVD
-    никакой параллельности здесь пока что нет
-    про матрицы https://eigen.tuxfamily.org/dox/group__TutorialMatrixClass.html
-    возвращаемый тип такой, поскольку матрицы имеют разный размер
-    должны по сути вернуться такие матрицы:
-        Eigen::Matrix<T, N, N> U
-        Eigen::Matrix<T, N, M> S
-        Eigen::Matrix<T, M, M> V
-    как видно по шаблонам, типы у них так-то разные
-    наиболее хорошие варианты:
-        std::array https://en.cppreference.com/w/cpp/container/array
-        std::tuple https://en.cppreference.com/w/cpp/utility/tuple
-
-    TODO: изменение матриц по ссылке
-*/
+ *  строк в матрице не больше чем столбцов
+ *  статья, ссылки не нащел: On Speeding-up Parallel Jacobi Iterations for SVD
+ *  параллельности пока нет
+ *  про матрицы https://eigen.tuxfamily.org/dox/group__TutorialMatrixClass.html
+ *  возвращаемый тип такой, поскольку матрицы имеют разный размер
+ *  нужны такие матрицы:
+ *      Eigen::Matrix<T, N, N> U
+ *      Eigen::Matrix<T, N, M> S
+ *      Eigen::Matrix<T, M, M> V
+ *  видно различие типов, поэтому взять std::tuple
+ *
+ *  TODO: изменение матриц по ссылке
+ */
 template<typename T, int N, int M>
-inline std::tuple<Eigen::Matrix<T, N, N>, Eigen::Matrix<T, N, M>, Eigen::Matrix<T, M, M>>
-JTS_SVD_base(Eigen::Matrix<T, N, M> &B, const float tau, const float eps, const float max_sweep_factor=1)
+std::tuple<Eigen::Matrix<T, N, N>,    // U
+           Eigen::Matrix<T, N, M>,    // S
+           Eigen::Matrix<T, M, M>>    // V
+JTS_SVD_base(Eigen::Matrix<T, N, M> &B, 
+             const float tau,
+             const float eps,
+             const float sweeps_factor = 1)
 {
     using matrix_nn = Eigen::Matrix<T, N, N>;
     using matrix_nm = Eigen::Matrix<T, N, M>;
@@ -39,18 +43,21 @@ JTS_SVD_base(Eigen::Matrix<T, N, M> &B, const float tau, const float eps, const 
 
     const int n = B.rows();
     const int m = B.cols();
-    static_assert(N >= M && N != Eigen::Dynamic && M != Eigen::Dynamic || N == Eigen::Dynamic || M == Eigen::Dynamic, 
-                    "JTS_SVD_base Compile Error: N must be greater or equal M");
+
+    // тривиальная проверка на адекватность размеров матриц
+    static_assert(N >= M || N == Eigen::Dynamic || M == Eigen::Dynamic,
+                  "JTS_SVD_base Compile Error: N must be greater or equal M");
     assert((n >= m, "JTS_SVD_base Runtime Error: N must be greater or equal M"));
+
     // https://eigen.tuxfamily.org/dox/classEigen_1_1MatrixBase.html#ac8da566526419f9742a6c471bbd87e0a
     const float delta = eps * B.squaredNorm();
-
     // https://eigen.tuxfamily.org/dox/group__TutorialAdvancedInitialization.html
     matrix_mm V = matrix_mm::Identity(m, m);
 
-    const int MAX_SWEEPS = (int64_t)m * (m - 1) / 2 * max_sweep_factor + 1;
-    for (int cur_sweeps = 0; cur_sweeps < MAX_SWEEPS; ++cur_sweeps)
+    const int SWEEPS_MAX = (int64_t)m * (m - 1) / 2 * sweeps_factor + 1;
+    for (int sweeps_cur = 0; sweeps_cur < SWEEPS_MAX; ++sweeps_cur)
     {
+        // так сделано, чтобы можно было в конец вставлять
         std::vector<pivot> pivots;
         pivots.reserve(m * (m - 1) / 2);
         for (int i = 0; i < m - 1; ++i)
@@ -64,39 +71,40 @@ JTS_SVD_base(Eigen::Matrix<T, N, M> &B, const float tau, const float eps, const 
                 pivots.emplace_back(b, i, j);
             }
         }
+
         int count_left = pivots.size() * tau;
         count_left += count_left < pivots.size(); // чтобы хотя бы один нашелся
         // https://en.cppreference.com/w/cpp/algorithm/nth_element
-        std::nth_element(pivots.begin(), pivots.begin() + count_left, pivots.end(), std::greater<pivot>());
+        std::nth_element(pivots.begin(),
+                         pivots.begin() + count_left,
+                         pivots.end(),
+                         std::greater<pivot>());
         pivots.resize(count_left);
-        // с какой целью нужно делать сортировку?
         std::sort(pivots.begin(), pivots.end(), std::greater<pivot>());
+        if (std::get<0>(pivots[0]) < delta) { break; }
 
-        if (std::get<0>(pivots[0]) < delta)
-        {
-            break; // нет желания плодить много кода
-        }
         /*
-            в статье предлагается сначала предлагается поместить тройки в очередь
-            и только после того как они были забиты, производить подсчеты
-            поскольку в очереди FIFO то можно по этому принципу сделать и без очереди
-        */
+         *  в статье предлагается сначала предлагается поместить тройки в очередь
+         *  и только после того как они были забиты, производить подсчеты
+         *  поскольку в очереди FIFO то можно по этому принципу сделать и без очереди
+         */
         for (const auto &[ _, i, j ] : pivots)
-        {            
+        {                
             T gamma = (B.col(j).squaredNorm() - B.col(i).squaredNorm()) / (2 * B.col(i).dot(B.col(j)));
             T t = 1 / (std::abs(gamma) + std::sqrt(gamma * gamma + 1));
-            t *= gamma != 0 ? gamma / std::abs(gamma) : 0; // для работы с комлексными, если они допустмы
+            t *= gamma != 0 ? gamma / std::abs(gamma) : 0; // для работы с комлексными
             T c = 1 / std::sqrt(1 + t * t);
             T s = t * c;
+
+            // умножение на матрицу якоби, меняются только 2 столбца
             // матрицу нельзя менять in-place
-            using col_b = Eigen::Matrix<T, 1, N>;
-            using col_v = Eigen::Matrix<T, 1, M>;
+            using col_b = Eigen::Matrix<T, 1, N>;            
             col_b col_bi = B.col(i);
             col_b col_bj = B.col(j);
-
             B.col(i) = col_bi * c - col_bj * s;
             B.col(j) = col_bi * s + col_bj * c;
 
+            using col_v = Eigen::Matrix<T, 1, M>;
             col_v col_vi = V.col(i);
             col_v col_vj = V.col(j);
             V.col(i) = col_vi * c - col_vj * s;
@@ -108,15 +116,14 @@ JTS_SVD_base(Eigen::Matrix<T, N, M> &B, const float tau, const float eps, const 
     T norm;
     for (int i = 0; i < m; ++i)
     {
-        // B больше не нужна по сути, мы ее приводим к нужному виду прост
         norm = B.col(i).norm();
         norms[i] = std::make_pair(norm, i);
-        B.col(i) /= norm;
+        B.col(i) /= norm; // нормировка столбца заранее
     }
     std::sort(norms.begin(), norms.end(), std::greater<std::pair<T, int>>());
     
     Eigen::PermutationMatrix<M> P(m);
-    matrix_nm S = matrix_nm::Zero(n, m);            
+    matrix_nm S = matrix_nm::Zero(n, m);
     matrix_nn U = matrix_nn::Zero(n, n);
     for (int i = 0; i < m; ++i)
     {
@@ -131,8 +138,13 @@ JTS_SVD_base(Eigen::Matrix<T, N, M> &B, const float tau, const float eps, const 
 }
 
 template<typename T, int N, int M>
-inline std::tuple<Eigen::Matrix<T, N, N>, Eigen::Matrix<T, N, M>, Eigen::Matrix<T, M, M>>
-JTS_SVD(const Eigen::Matrix<T, N, M> &A, const float tau, const float eps, const float max_sweep_factor=1)
+std::tuple<Eigen::Matrix<T, N, N>,    // U
+           Eigen::Matrix<T, N, M>,    // S
+           Eigen::Matrix<T, M, M>>    // V
+JTS_SVD(const Eigen::Matrix<T, N, M> &A,
+        const float tau,
+        const float eps,
+        const float max_sweep_factor = 1)
 {
     if (A.rows() < A.cols())
     {
