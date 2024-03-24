@@ -15,11 +15,11 @@
 // не у всех эйген одинаково подключается
 // но этот костыль не везде заработает
 // https://stackoverflow.com/questions/142877/can-the-c-preprocessor-be-used-to-tell-if-a-file-exists
-#if __has_include(<eigen/core>)
-# include <eigen/core>
-#else
-# include <eigen3/eigen/core>
-#endif
+// #if __has_include(<eigen/core>)
+// # include <eigen/core>
+// #else
+#include <Eigen/Core>
+// #endif
 
 /*
  * Пусть пока все будет в одном хедере

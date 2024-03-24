@@ -1,10 +1,10 @@
 //Александр Нам, КМБО-04-20
 
-#include <generate_svd.h>
-#include <jacobi.h>
+#include "generate_svd.h"
+#include "jacobi.h"
 
 #include <iostream>
-#include <eigen3/Eigen/Dense>
+#include <Eigen/Dense>
 #include <vector>
 #include <chrono>
 #include <iomanip>
