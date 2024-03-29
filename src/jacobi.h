@@ -16,187 +16,306 @@
 // но этот костыль не везде заработает
 // https://stackoverflow.com/questions/142877/can-the-c-preprocessor-be-used-to-tell-if-a-file-exists
 // #if __has_include(<eigen/core>)
-// # include <eigen/core>
+# include <eigen/core>
+# include <eigen/svd>
 // #else
-#include <Eigen/Core>
+// # include <eigen3/eigen/core>
+// # include <eigen3/eigen/svd>
 // #endif
 
-/*
- * Пусть пока все будет в одном хедере
- * это класс-обертка
- */
-class JTS_SVD
+typedef struct
 {
-  protected:
-    template<typename T, int N, int M>
-    std::tuple<Eigen::Matrix<T, N, N>,    // U
-               Eigen::Matrix<T, N, M>,    // S
-               Eigen::Matrix<T, M, M>>    // V
-    _get_SVD(Eigen::Matrix<T, N, M> &B);
+  float epsilon = 1e9;
+  float tau = 0.1;
+  float sweeps_factor = 1;
+} params_t;
 
-  public:
-    JTS_SVD() {}
-    JTS_SVD(float tau, float eps, float sweeps_factor = 1)
-        : tau(tau), eps(eps), sweeps_factor(sweeps_factor) {}
+template<typename _MatrixType> class JTS_SVD;
 
-    template<typename T, int N, int M>
-    std::tuple<Eigen::Matrix<T, N, N>,    // U
-               Eigen::Matrix<T, N, M>,    // S
-               Eigen::Matrix<T, M, M>>    // V
-    operator()(const Eigen::Matrix<T, N, M> &A);
+/** По большей части написанное здесь есть копия того, что находится в eigen/svd/JacobiSVD.h
+  * Основные изменения касаются compute
+  * В других местах изменения были внесены только чтобы написанное заработало
+  * 
+  * В compute применен другой метод, который, однако, так же основан на поворотах Якоби
+  * На текущий момент работает только с матрицами, где рядов больше чем колонок
+  * Статья о нем: 
+  * S. Pal, S. Pathak and S. Rajasekaran, 
+  * "On Speeding-Up Parallel Jacobi Iterations for SVDs," 
+  * in 2016 IEEE 18th International Conference on High-Performance Computing and Communications,
+  * IEEE 14th International Conference on Smart City,
+  * and IEEE 2nd International Conference on Data Science and Systems (HPCC/SmartCity/DSS),
+  * Sydney, NSW, 2016 pp. 9-16.
+  * doi: 10.1109/HPCC-SmartCity-DSS.2016.0013 
+  */
 
-    float tau = 0.1;
-    float eps = 1e-9;
-    float sweeps_factor = 1;
+template<typename _MatrixType> 
+struct Eigen::internal::traits<JTS_SVD<_MatrixType> >
+        : Eigen::internal::traits<_MatrixType>
+{
+  typedef _MatrixType MatrixType;
 };
 
-/*
- *  строк в матрице не больше чем столбцов
- *  статья, хорошей ссылки не нащел: On Speeding-up Parallel Jacobi Iterations for SVD
- *  параллельности пока нет
- *  про матрицы https://eigen.tuxfamily.org/dox/group__TutorialMatrixClass.html
- *  возвращаемый тип такой, поскольку матрицы имеют разный размер
- *  нужны такие матрицы:
- *      Eigen::Matrix<T, N, N> U
- *      Eigen::Matrix<T, N, M> S
- *      Eigen::Matrix<T, M, M> V
- *  видно различие типов, поэтому взят std::tuple
- *
- *  TODO: сделать что-то получше тюпла
- */
-template<typename T, int N, int M>
-std::tuple<Eigen::Matrix<T, N, N>,    // U
-           Eigen::Matrix<T, N, M>,    // S
-           Eigen::Matrix<T, M, M>>    // V
-JTS_SVD::_get_SVD(Eigen::Matrix<T, N, M> &B)
+template<typename _MatrixType> class JTS_SVD
+ : public Eigen::SVDBase<JTS_SVD<_MatrixType> >
 {
-    using matrix_nn = Eigen::Matrix<T, N, N>;
-    using matrix_nm = Eigen::Matrix<T, N, M>;
-    using matrix_mm = Eigen::Matrix<T, M, M>;
-    using pivot     = std::tuple<T, int, int>;
+  typedef Eigen::SVDBase<JTS_SVD> Base;
+ public:
 
-    const int n = B.rows();
-    const int m = B.cols();
+  typedef _MatrixType MatrixType;
+  typedef typename MatrixType::Scalar Scalar;
+  typedef typename Eigen::NumTraits<typename MatrixType::Scalar>::Real RealScalar;
+  
+  #define Dynamic Eigen::Dynamic
+  enum {
 
-    // тривиальная проверка на адекватность размеров матриц
-    // на всякий случай
-    static_assert(N >= M || N == Eigen::Dynamic || M == Eigen::Dynamic,
-                  "JTS_SVD Compile Error: N must be greater or equalthan M");
-    assert((n >= m, "JTS_SVD Runtime Error: N must be greater or equal than M"));
+    RowsAtCompileTime = MatrixType::RowsAtCompileTime,
+    ColsAtCompileTime = MatrixType::ColsAtCompileTime,
+    DiagSizeAtCompileTime = EIGEN_SIZE_MIN_PREFER_DYNAMIC(RowsAtCompileTime,ColsAtCompileTime),
+    MaxRowsAtCompileTime = MatrixType::MaxRowsAtCompileTime,
+    MaxColsAtCompileTime = MatrixType::MaxColsAtCompileTime,
+    MaxDiagSizeAtCompileTime = EIGEN_SIZE_MIN_PREFER_FIXED(MaxRowsAtCompileTime,MaxColsAtCompileTime),
+    MatrixOptions = MatrixType::Options
+  };
+  #undef Dynamic
 
-    // https://eigen.tuxfamily.org/dox/classEigen_1_1MatrixBase.html#ac8da566526419f9742a6c471bbd87e0a
-    const float delta = eps * B.squaredNorm();
-    // https://eigen.tuxfamily.org/dox/group__TutorialAdvancedInitialization.html
-    matrix_mm V = matrix_mm::Identity(m, m);
 
-    const int SWEEPS_MAX = (int64_t)m * (m - 1) / 2 * sweeps_factor + 1;
-    for (int sweeps_cur = 0; sweeps_cur < SWEEPS_MAX; ++sweeps_cur)
-    {
-        // так сделано, чтобы можно было в конец вставлять
-        std::vector<pivot> pivots;
-        pivots.reserve(m * (m - 1) / 2);
-        for (int i = 0; i < m - 1; ++i)
-        {
-            for (int j = i + 1; j < m; ++j)
-            {
-                // простое умножение падает
-                // https://eigen.tuxfamily.org/dox/group__TutorialBlockOperations.html
-                // в будущем это надо будет параллелить
-                T b = std::abs(B.col(i).dot(B.col(j)));
-                pivots.emplace_back(b, i, j);
-            }
-        }
+  typedef typename Base::MatrixUType MatrixUType;
+  typedef typename Base::MatrixVType MatrixVType;
+  typedef typename Base::SingularValuesType SingularValuesType;
+  
+  typedef typename Eigen::internal::plain_row_type<MatrixType>::type RowType;
+  typedef typename Eigen::internal::plain_col_type<MatrixType>::type ColType;
 
-        int count_left = pivots.size() * tau;
-        count_left += count_left < pivots.size(); // чтобы хотя бы один нашелся
-        // https://en.cppreference.com/w/cpp/algorithm/nth_element
-        std::nth_element(pivots.begin(),
-                         pivots.begin() + count_left,
-                         pivots.end(),
-                         std::greater<pivot>());
-        pivots.resize(count_left);
-        std::sort(pivots.begin(), pivots.end(), std::greater<pivot>());
-        if (std::get<0>(pivots[0]) < delta) { break; }
+  /** \brief Default Constructor.
+    *
+    * The default constructor is useful in cases in which the user intends to
+    * perform decompositions via JTS_SVD::compute(const MatrixType&).
+    */
+  JTS_SVD()
+  {}
 
-        /*
-         *  в статье предлагается сначала предлагается поместить тройки в очередь
-         *  и только после того как они были забиты, производить подсчеты
-         *  поскольку в очереди FIFO то можно по этому принципу сделать и без очереди
-         */
-        for (const auto &[ _, i, j ] : pivots)
-        {                
-            T gamma = (B.col(j).squaredNorm() - B.col(i).squaredNorm()) 
-                      / (2 * B.col(i).dot(B.col(j)));
-            T t = 1 / (std::abs(gamma) + std::sqrt(gamma * gamma + 1));
-            t *= gamma != 0 ? gamma / std::abs(gamma) : 0; // для работы с комлексными
-            T c = 1 / std::sqrt(1 + t * t);
-            T s = t * c;
 
-            // умножение на матрицу якоби, меняются только 2 столбца
-            // матрицу нельзя менять in-place
-            using col_b = Eigen::Matrix<T, 1, N>;            
-            col_b col_bi = B.col(i);
-            col_b col_bj = B.col(j);
-            B.col(i) = col_bi * c - col_bj * s;
-            B.col(j) = col_bi * s + col_bj * c;
+  /** \brief Default Constructor with memory preallocation
+    *
+    * Like the default constructor but with preallocation of the internal data
+    * according to the specified problem size.
+    * \sa JTS_SVD()
+    */
+  JTS_SVD(Eigen::Index rows, Eigen::Index cols, unsigned int computationOptions = 0)
+  {
+    allocate(rows, cols, computationOptions);
+  }
 
-            using col_v = Eigen::Matrix<T, 1, M>;
-            col_v col_vi = V.col(i);
-            col_v col_vj = V.col(j);
-            V.col(i) = col_vi * c - col_vj * s;
-            V.col(j) = col_vi * s + col_vj * c;
-        }
-    }
+  /** \brief Constructor performing the decomposition of given matrix.
+   *
+   * \param matrix the matrix to decompose
+   * \param computationOptions optional parameter allowing to specify if you want full or thin U or V unitaries to be computed.
+   *                           By default, none is computed. This is a bit-field, the possible bits are #ComputeFullU, #ComputeThinU,
+   *                           #ComputeFullV, #ComputeThinV.
+   *
+   * Thin unitaries are only available if your matrix type has a Dynamic number of columns (for example MatrixXf).
+   */
+  explicit JTS_SVD(const MatrixType& matrix, unsigned int computationOptions = 0)
+  {
+    compute(matrix, computationOptions);
+  }
 
-    std::vector<std::pair<T, int>> norms(m);
-    T norm;
-    for (int i = 0; i < m; ++i)
-    {
-        norm = B.col(i).norm();
-        norms[i] = std::make_pair(norm, i);
-        B.col(i) /= norm; // нормировка столбца заранее
-    }
-    std::sort(norms.begin(), norms.end(), std::greater<std::pair<T, int>>());
+  /** \brief Method performing the decomposition of given matrix using custom options.
+   *
+   * \param matrix the matrix to decompose
+   * \param computationOptions optional parameter allowing to specify if you want full or thin U or V unitaries to be computed.
+   *                           By default, none is computed. This is a bit-field, the possible bits are #ComputeFullU, #ComputeThinU,
+   *                           #ComputeFullV, #ComputeThinV.
+   *
+   * Thin unitaries are only available if your matrix type has a Dynamic number of columns (for example MatrixXf).
+   */
+  JTS_SVD& compute(const MatrixType& matrix, const params_t &params, unsigned int computationOptions);
+
+  /** \brief Method performing the decomposition of given matrix using current options.
+   *
+   * \param matrix the matrix to decompose
+   *
+   * This method uses the current \a computationOptions, as already passed to the constructor or to compute(const MatrixType&, unsigned int).
+   */
+  JTS_SVD& compute(const MatrixType& matrix, const params_t &params)
+  {
+    return compute(matrix, params, m_computationOptions);
+  }
+
+  using Base::computeU;
+  using Base::computeV;
+  using Base::rows;
+  using Base::cols;
+  using Base::rank;
+
+ private:
+  void allocate(Eigen::Index rows, Eigen::Index cols, unsigned int computationOptions);
+
+ protected:
+  using Base::m_matrixU;
+  using Base::m_matrixV;
+  using Base::m_singularValues;
+  using Base::m_info;
+  using Base::m_isInitialized;
+  using Base::m_isAllocated;
+  using Base::m_usePrescribedThreshold;
+  using Base::m_computeFullU;
+  using Base::m_computeThinU;
+  using Base::m_computeFullV;
+  using Base::m_computeThinV;
+  using Base::m_computationOptions;
+  using Base::m_nonzeroSingularValues;
+  using Base::m_rows;
+  using Base::m_cols;
+  using Base::m_diagSize;
+  using Base::m_prescribedThreshold;
+  
+  MatrixType m_workMatrix;
+};
+
+
+template<typename MatrixType>
+void JTS_SVD<MatrixType>::allocate(Eigen::Index rows, Eigen::Index cols, unsigned int computationOptions)
+{
+  eigen_assert(rows >= 0 && cols >= 0);
+  eigen_assert((rows < cols) && "JTS_SVD: rows < cols, now unsupported");
+
+  if (m_isAllocated &&
+      rows == m_rows &&
+      cols == m_cols &&
+      computationOptions == m_computationOptions)
+  {
+    return;
+  }
+
+  m_rows = rows;
+  m_cols = cols;
+  m_info = Eigen::Success;
+  m_isInitialized = false;
+  m_isAllocated = true;
+  m_computationOptions = computationOptions;
+  m_computeFullU = (computationOptions & Eigen::ComputeFullU) != 0;
+  m_computeThinU = (computationOptions & Eigen::ComputeThinU) != 0;
+  m_computeFullV = (computationOptions & Eigen::ComputeFullV) != 0;
+  m_computeThinV = (computationOptions & Eigen::ComputeThinV) != 0;
+  eigen_assert(!(m_computeFullU && m_computeThinU) && "JTS_SVD: you can't ask for both full and thin U");
+  eigen_assert(!(m_computeFullV && m_computeThinV) && "JTS_SVD: you can't ask for both full and thin V");
+  eigen_assert(EIGEN_IMPLIES(m_computeThinU || m_computeThinV, MatrixType::ColsAtCompileTime==Eigen::Dynamic) &&
+              "JTS_SVD: thin U and V are only available when your matrix has a dynamic number of columns.");
+
+  m_diagSize = (std::min)(m_rows, m_cols);
+  m_singularValues.resize(m_diagSize);
+  if(RowsAtCompileTime==Eigen::Dynamic)
+    m_matrixU.resize(m_rows, m_computeFullU ? m_rows
+                            : m_computeThinU ? m_diagSize
+                            : 0);
+  if(ColsAtCompileTime==Eigen::Dynamic)
+    m_matrixV.resize(m_cols, m_computeFullV ? m_cols
+                            : m_computeThinV ? m_diagSize
+                            : 0);
+  m_workMatrix.resize(m_rows, m_cols);
+}
+
+ 
+template<typename MatrixType>
+JTS_SVD<MatrixType>&
+JTS_SVD<MatrixType>::compute(const MatrixType& matrix, const params_t &params,
+                             unsigned int computationOptions)
+{
+  allocate(matrix.rows(), matrix.cols(), computationOptions);
+
+  
+  const int SWEEPS_MAX = (int64_t)m_diagSize * (m_diagSize - 1) / 2 * params.sweeps_factor + 1;
+  const RealScalar threshold = RealScalar(params.epsilon) * matrix.squaredNorm();
+
+  /*** шаг 1. Просто инициализация, без QR разложения, как в эйгене ***/
+  m_workMatrix = matrix.block(0, 0, m_rows, m_cols);
+  if(m_computeFullU) m_matrixU.setIdentity(m_rows, m_rows);
+  if(m_computeThinU) m_matrixU.setIdentity(m_rows, m_diagSize);
+  if(m_computeFullV) m_matrixV.setIdentity(m_cols, m_cols);
+  if(m_computeThinV) m_matrixV.setIdentity(m_cols, m_diagSize);
+
+  std::cout << m_matrixV << "\n";
+  /*** шаг 2. Основа ***/
+  for (int sweeps_cur = 0; sweeps_cur < SWEEPS_MAX; ++sweeps_cur)
+  {
+    // пока пусть будет так, хотя было бы неплохо обойтись только эйгеном
+    using pivot = typename std::tuple<Scalar, int, int>;
+    std::vector<pivot> pivots;
+    pivots.reserve(m_diagSize * (m_diagSize - 1) / 2);
     
-    Eigen::PermutationMatrix<M> P(m);
-    matrix_nm S = matrix_nm::Zero(n, m);
-    matrix_nn U = matrix_nn::Zero(n, n);
-    for (int i = 0; i < m; ++i)
+    for (int i = 0; i < m_diagSize - 1; ++i)
     {
-        S(i, i) = norms[i].first;
-        P.indices()[i] = norms[i].second;
-        // P.indices()[norms[i].second] = i;
+      for (int j = i + 1; j < m_diagSize; ++j)
+      {
+        // простое умножение падает
+        // https://eigen.tuxfamily.org/dox/group__TutorialBlockOperations.html
+        Scalar b = std::abs(m_workMatrix.col(i).dot(m_workMatrix.col(j)));
+        pivots.emplace_back(b, i, j);
+      }
     }
-    /*
-     * U должна состоять из ортогональных столбцов
-     * но здесь, на самом деле, это не обязательно получится
-     * пока было решено оставить так, как есть
-     */
-    U.block(0, 0, n, m) = B * P;
-    V = V * P;
 
-    return std::make_tuple(U, S, V.transpose());
+    int count_left = pivots.size() * params.tau;
+    count_left += count_left < pivots.size(); // чтобы хотя бы один нашелся
+    // https://en.cppreference.com/w/cpp/algorithm/nth_element
+    std::nth_element(pivots.begin(), pivots.begin() + count_left,
+                     pivots.end(), std::greater<pivot>());
+    pivots.resize(count_left);
+    std::sort(pivots.begin(), pivots.end(), std::greater<pivot>());
+    if (std::get<0>(pivots[0]) < threshold) { break; }
+
+    /**  в статье предлагается сначала предлагается поместить тройки в очередь
+      *  и только после того как они были забиты, производить подсчеты
+      *  поскольку в очереди FIFO то можно по этому принципу сделать и без очереди
+      */
+    for (const auto &[ _, i, j ] : pivots)
+    {                
+      Scalar gamma = (m_workMatrix.col(j).squaredNorm() - m_workMatrix.col(i).squaredNorm()) 
+                      / (2 * m_workMatrix.col(i).dot(m_workMatrix.col(j)));
+      Scalar t = 1 / (std::abs(gamma) + std::sqrt(gamma * gamma + 1));
+      t *= gamma != 0 ? gamma / std::abs(gamma) : 0; // для работы с комлексными
+      Scalar c = 1 / std::sqrt(1 + t * t);
+      Scalar s = t * c;
+
+      // нет уверенности, что с комплекснозначными заработает
+      Eigen::JacobiRotation<Scalar> J(c, s);
+
+      m_workMatrix.applyOnTheRight(i, j, J);
+      if (computeV()) m_matrixV.applyOnTheRight(i, j, J);
+    }
+  }
+
+  /*** шаг 3. Заполняем сингулярные значения ***/
+  for(Eigen::Index i = 0; i < m_diagSize; ++i)
+  {
+    RealScalar a = m_workMatrix.col(i).norm();
+    m_singularValues.coeffRef(i) = a;
+    if (computeU()) m_matrixU.col(i) = m_workMatrix.col(i) / a;
+  }
+
+  
+  /*** шаг 4. Сортировка, оставлено без изменений из эйгена ***/
+  m_nonzeroSingularValues = m_diagSize;
+  for(Eigen::Index i = 0; i < m_diagSize; ++i)
+  {
+    Eigen::Index pos;
+    RealScalar maxRemainingSingularValue = m_singularValues.tail(m_diagSize-i).maxCoeff(&pos);
+    if (maxRemainingSingularValue == RealScalar(0))
+    {
+      m_nonzeroSingularValues = i;
+      break;
+    }
+    if(pos)
+    {
+      pos += i;
+      std::swap(m_singularValues.coeffRef(i), m_singularValues.coeffRef(pos));
+      if (computeU()) m_matrixU.col(pos).swap(m_matrixU.col(i));
+      if (computeV()) m_matrixV.col(pos).swap(m_matrixV.col(i));
+    }
+  }
+
+  m_isInitialized = true;
+  return *this;
 }
 
-template<typename T, int N, int M>
-std::tuple<Eigen::Matrix<T, N, N>,    // U
-           Eigen::Matrix<T, N, M>,    // S
-           Eigen::Matrix<T, M, M>>    // V
-JTS_SVD::operator()(const Eigen::Matrix<T, N, M> &A)
-{
-    if (A.rows() < A.cols())
-    {
-        // как будто тут можно получше сделать
-        // но самый примитивный вариант не скомпилировался
-        Eigen::Matrix<T, M, N> B = A.transpose();
-        auto [ U, S, V ] = _get_SVD(B);
-        return std::make_tuple(V.transpose(), S.transpose(), U.transpose());
-    }
-    else
-    {
-        Eigen::Matrix<T, N, M> B = A;
-        return _get_SVD(B);
-    }
-}
-
-#endif // JACOBI_H
+#endif    // JACOBI_H
