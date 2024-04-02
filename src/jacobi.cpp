@@ -3,7 +3,7 @@
 
 // если это делать по нормальному, то у меня компилятор немного ругается
 // было лень менять все на нечто нормальное
-#include "src/jacobi.h"
+#include "jacobi.h"
 
 /*
  * теперь здесь ничего не будет
@@ -24,7 +24,7 @@ int main()
     // for (int i = 0; i < 3; i++)
     //     cout << P2.indices()[i] << "\n";
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> m(9, 10);
+    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> m(10, 9);
     m << 1,  2,  3,  4,  5,  6,  7,  8,  9,
          10, 11, 12, 13, 14, 15, 16, 17, 18,
          19, 20, 21, 22, 23, 24, 25, 26, 27,
@@ -41,7 +41,7 @@ int main()
     JTS_SVD<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>> jts_svd;
     jts_svd.compute(m, params, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> S(9, 10);
+    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> S(10, 9);
     S.setZero();
 
     auto singVector = jts_svd.singularValues();
@@ -69,7 +69,7 @@ int main()
         cout << "\n";
     }
     cout << "\n";
-    cout << U * U.transpose();
+    cout << V * V.transpose();
 
     char c;
     cin >> c;

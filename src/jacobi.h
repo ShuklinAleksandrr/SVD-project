@@ -15,17 +15,17 @@
 // не у всех эйген одинаково подключается
 // но этот костыль не везде заработает
 // https://stackoverflow.com/questions/142877/can-the-c-preprocessor-be-used-to-tell-if-a-file-exists
-// #if __has_include(<eigen/core>)
+#if __has_include(<eigen/core>)
 # include <eigen/core>
 # include <eigen/svd>
-// #else
-// # include <eigen3/eigen/core>
-// # include <eigen3/eigen/svd>
-// #endif
+#else
+# include <eigen3/eigen/core>
+# include <eigen3/eigen/svd>
+#endif
 
 typedef struct
 {
-  float epsilon = 1e9;
+  float epsilon = 1e-9;
   float tau = 0.1;
   float sweeps_factor = 1;
 } params_t;
@@ -46,6 +46,9 @@ template<typename _MatrixType> class JTS_SVD;
   * and IEEE 2nd International Conference on Data Science and Systems (HPCC/SmartCity/DSS),
   * Sydney, NSW, 2016 pp. 9-16.
   * doi: 10.1109/HPCC-SmartCity-DSS.2016.0013 
+  * 
+  * При этом есть сомнения, что описанное заработает на комплексных значениях
+  * 
   */
 
 template<typename _MatrixType> 
@@ -150,6 +153,8 @@ template<typename _MatrixType> class JTS_SVD
 
  private:
   void allocate(Eigen::Index rows, Eigen::Index cols, unsigned int computationOptions);
+  JTS_SVD& compute_basic(const MatrixType& matrix, const params_t &params);
+  JTS_SVD& compute_transposed(const MatrixType& matrix, const params_t &params);
 
  protected:
   using Base::m_matrixU;
@@ -178,7 +183,7 @@ template<typename MatrixType>
 void JTS_SVD<MatrixType>::allocate(Eigen::Index rows, Eigen::Index cols, unsigned int computationOptions)
 {
   eigen_assert(rows >= 0 && cols >= 0);
-  eigen_assert((rows < cols) && "JTS_SVD: rows < cols, now unsupported");
+  // eigen_assert((rows >= cols) && "JTS_SVD: rows < cols, now unsupported");
 
   if (m_isAllocated &&
       rows == m_rows &&
@@ -224,10 +229,6 @@ JTS_SVD<MatrixType>::compute(const MatrixType& matrix, const params_t &params,
 {
   allocate(matrix.rows(), matrix.cols(), computationOptions);
 
-  
-  const int SWEEPS_MAX = (int64_t)m_diagSize * (m_diagSize - 1) / 2 * params.sweeps_factor + 1;
-  const RealScalar threshold = RealScalar(params.epsilon) * matrix.squaredNorm();
-
   /*** шаг 1. Просто инициализация, без QR разложения, как в эйгене ***/
   m_workMatrix = matrix.block(0, 0, m_rows, m_cols);
   if(m_computeFullU) m_matrixU.setIdentity(m_rows, m_rows);
@@ -235,7 +236,29 @@ JTS_SVD<MatrixType>::compute(const MatrixType& matrix, const params_t &params,
   if(m_computeFullV) m_matrixV.setIdentity(m_cols, m_cols);
   if(m_computeThinV) m_matrixV.setIdentity(m_cols, m_diagSize);
 
-  std::cout << m_matrixV << "\n";
+  /** два случая
+    * базовый, который описан в статье, где строк не меньше чем колонок
+    * и тот где меньше
+    * второй случай можно свести к первому, просто транспонировав матрицу
+    * но чтобы не трогать типы, придется обработать отдельно
+    */
+  if (matrix.rows() >= matrix.cols())
+  {
+    return compute_basic(matrix, params);
+  }
+  else
+  {
+    return compute_transposed(matrix, params);
+  }
+}
+
+template<typename MatrixType>
+JTS_SVD<MatrixType>&
+JTS_SVD<MatrixType>::compute_basic(const MatrixType& matrix, const params_t &params)
+{
+  const int SWEEPS_MAX = (int64_t)m_diagSize * (m_diagSize - 1) / 2 * params.sweeps_factor + 1;
+  const RealScalar threshold = RealScalar(params.epsilon) * matrix.squaredNorm();
+
   /*** шаг 2. Основа ***/
   for (int sweeps_cur = 0; sweeps_cur < SWEEPS_MAX; ++sweeps_cur)
   {
@@ -264,7 +287,7 @@ JTS_SVD<MatrixType>::compute(const MatrixType& matrix, const params_t &params,
     std::sort(pivots.begin(), pivots.end(), std::greater<pivot>());
     if (std::get<0>(pivots[0]) < threshold) { break; }
 
-    /**  в статье предлагается сначала предлагается поместить тройки в очередь
+    /**  в статье предлагается сначала поместить тройки в очередь
       *  и только после того как они были забиты, производить подсчеты
       *  поскольку в очереди FIFO то можно по этому принципу сделать и без очереди
       */
@@ -291,6 +314,117 @@ JTS_SVD<MatrixType>::compute(const MatrixType& matrix, const params_t &params,
     RealScalar a = m_workMatrix.col(i).norm();
     m_singularValues.coeffRef(i) = a;
     if (computeU()) m_matrixU.col(i) = m_workMatrix.col(i) / a;
+  }
+
+  
+  /*** шаг 4. Сортировка, оставлено без изменений из эйгена ***/
+  m_nonzeroSingularValues = m_diagSize;
+  for(Eigen::Index i = 0; i < m_diagSize; ++i)
+  {
+    Eigen::Index pos;
+    RealScalar maxRemainingSingularValue = m_singularValues.tail(m_diagSize-i).maxCoeff(&pos);
+    if (maxRemainingSingularValue == RealScalar(0))
+    {
+      m_nonzeroSingularValues = i;
+      break;
+    }
+    if(pos)
+    {
+      pos += i;
+      std::swap(m_singularValues.coeffRef(i), m_singularValues.coeffRef(pos));
+      if (computeU()) m_matrixU.col(pos).swap(m_matrixU.col(i));
+      if (computeV()) m_matrixV.col(pos).swap(m_matrixV.col(i));
+    }
+  }
+
+  m_isInitialized = true;
+  return *this;
+}
+
+
+
+/** A^T = (BV^T)^T
+  * A = V B^T
+  * A^T = (BJ(VJ)^T)^T
+  * A = VJ (BJ)^T
+  * A = VJ (BJ)^T
+  * A = VJ (USJ)^T
+  * A = VJ J^T S^T U^T
+  * 
+  * Здесь что-то не так
+  * Я полагаю после поворотов, поскольку предел sweeps в тестовом примере, вроде бы,
+  * достигнут не был
+  * Отсюда вероятно проблема в том, что идет после (скорее всего в сортировке).
+  * Методом подбора мне удалось довести это дело до состояния, в котором
+  * результат умножения USV^T является корректным.
+  * Но менять row на col в разных местах и смотреть, что будет, я устал
+  */
+template<typename MatrixType>
+JTS_SVD<MatrixType>&
+JTS_SVD<MatrixType>::compute_transposed(const MatrixType& matrix, const params_t &params)
+{
+  
+  const int SWEEPS_MAX = (int64_t)m_diagSize * (m_diagSize - 1) / 2 * params.sweeps_factor + 1;
+  const RealScalar threshold = RealScalar(params.epsilon) * matrix.squaredNorm();
+
+  /*** шаг 2. Основа ***/
+  for (int sweeps_cur = 0; sweeps_cur < SWEEPS_MAX; ++sweeps_cur)
+  {
+    // пока пусть будет так, хотя было бы неплохо обойтись только эйгеном
+    using pivot = typename std::tuple<Scalar, int, int>;
+    std::vector<pivot> pivots;
+    pivots.reserve(m_diagSize * (m_diagSize - 1) / 2);
+    
+    for (int i = 0; i < m_diagSize - 1; ++i)
+    {
+      for (int j = i + 1; j < m_diagSize; ++j)
+      {
+        // простое умножение падает
+        // https://eigen.tuxfamily.org/dox/group__TutorialBlockOperations.html
+        Scalar b = std::abs(m_workMatrix.row(i).dot(m_workMatrix.row(j)));
+        pivots.emplace_back(b, i, j);
+      }
+    }
+
+    int count_left = pivots.size() * params.tau;
+    count_left += count_left < pivots.size(); // чтобы хотя бы один нашелся
+    // https://en.cppreference.com/w/cpp/algorithm/nth_element
+    std::nth_element(pivots.begin(), pivots.begin() + count_left,
+                     pivots.end(), std::greater<pivot>());
+    pivots.resize(count_left);
+    std::sort(pivots.begin(), pivots.end(), std::greater<pivot>());
+
+    if (std::get<0>(pivots[0]) < threshold) { break; }
+
+    /**  в статье предлагается сначала поместить тройки в очередь
+      *  и только после того как они были забиты, производить подсчеты
+      *  поскольку в очереди FIFO то можно по этому принципу сделать и без очереди
+      */
+    for (const auto &[ _, i, j ] : pivots)
+    {                
+      Scalar gamma = (m_workMatrix.row(j).squaredNorm() - m_workMatrix.row(i).squaredNorm()) 
+                      / (2 * m_workMatrix.row(i).dot(m_workMatrix.row(j)));
+      Scalar t = 1 / (std::abs(gamma) + std::sqrt(gamma * gamma + 1));
+      t *= gamma != 0 ? gamma / std::abs(gamma) : 0; // для работы с комлексными
+      Scalar c = 1 / std::sqrt(1 + t * t);
+      Scalar s = t * c;
+
+      // нет уверенности, что с комплекснозначными заработает
+      // что делать подобрал наугад
+      Eigen::JacobiRotation<Scalar> J(c, s);
+
+      m_workMatrix.applyOnTheLeft(i, j, J.transpose());
+
+      if (computeU()) m_matrixU.applyOnTheRight(i, j, J);
+    }
+  }
+
+  /*** шаг 3. Заполняем сингулярные значения ***/
+  for(Eigen::Index i = 0; i < m_diagSize; ++i)
+  {
+    RealScalar a = m_workMatrix.row(i).norm();
+    m_singularValues.coeffRef(i) = a;
+    if (computeV()) m_matrixV.col(i) = m_workMatrix.row(i) / a;
   }
 
   
