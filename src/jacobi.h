@@ -11,19 +11,18 @@
 #include <tuple>
 #include <vector>
 #include <algorithm>
-
 // не у всех эйген одинаково подключается
 // но этот костыль не везде заработает
 // https://stackoverflow.com/questions/142877/can-the-c-preprocessor-be-used-to-tell-if-a-file-exists
 #if __has_include(<eigen/core>)
-# include <eigen/core>
-# include <eigen/svd>
+#include <eigen/core>
+#include <eigen/svd>
 #elif __has_include(<eigen3/eigen/core>)
-# include <eigen3/eigen/core>
-# include <eigen3/eigen/svd>
-#elif __has_include(<eigen3/Eigen/core>)
-# include <eigen3/Eigen/core>
-# include <eigen3/Eigen/svd>
+#include <eigen3/eigen/core>
+#include <eigen3/eigen/svd>
+#elif __has_include(<eigen3/Eigen/Core>)
+#include <eigen3/Eigen/Core>
+#include <eigen3/Eigen/SVD>
 #endif
 
 typedef struct
@@ -55,7 +54,7 @@ template<typename _MatrixType> class JTS_SVD;
   */
 
 template<typename _MatrixType> 
-struct Eigen::internal::traits<JTS_SVD<_MatrixType> >
+struct Eigen::internal::traits<JTS_SVD<_MatrixType>>
         : Eigen::internal::traits<_MatrixType>
 {
   typedef _MatrixType MatrixType;

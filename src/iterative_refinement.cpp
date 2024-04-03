@@ -3,8 +3,21 @@
 #include <cmath>
 #include <tuple>
 #include <vector>
+
+
+#if __has_include(<Eigen/LU>)
 #include <Eigen/LU> 
-#include <Eigen/SVD>
+#elif __has_include(<eigen3/Eigen/LU>)
+#include <eigen3/Eigen/LU>
+#endif
+
+
+#if __has_include(<Eigen/SVD>)
+#include <Eigen/SVD> 
+#elif __has_include(<eigen3/Eigen/SVD>)
+#include <eigen3/Eigen/SVD>
+#endif
+
 
 
 

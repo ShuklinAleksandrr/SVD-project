@@ -8,10 +8,10 @@ project(svd VERSION 1.0.0 DESCRIPTION "Implementations of SVD")
 
 SET(SOURCE_FILES
   src/GolubKahanSVD.cpp
-  # src/iterative_refinement.cpp
+  #src/iterative_refinement.cpp
   src/jacobi.cpp
   src/generate_svd.cpp
-  src/testing.cpp
+  #src/testing.cpp
 )
 SET(HEADER_FILES
   src/generate_svd.h
