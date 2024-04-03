@@ -12,7 +12,6 @@
 int main()
 {
     using namespace std;
-    using namespace Eigen;
 
     // PermutationMatrix<Dynamic> P(3);
     // // P.setIdentity();

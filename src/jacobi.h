@@ -18,9 +18,12 @@
 #if __has_include(<eigen/core>)
 # include <eigen/core>
 # include <eigen/svd>
-#else
+#elif __has_include(<eigen3/eigen/core>)
 # include <eigen3/eigen/core>
 # include <eigen3/eigen/svd>
+#elif __has_include(<eigen3/Eigen/core>)
+# include <eigen3/Eigen/core>
+# include <eigen3/Eigen/svd>
 #endif
 
 typedef struct
