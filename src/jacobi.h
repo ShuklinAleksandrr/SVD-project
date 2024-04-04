@@ -37,7 +37,6 @@ template<typename _MatrixType> class JTS_SVD;
   * В других местах изменения были внесены только чтобы написанное заработало
   * 
   * В compute применен другой метод, который, однако, так же основан на поворотах Якоби
-  * На текущий момент работает только с матрицами, где рядов больше чем колонок
   * Статья о нем: 
   * S. Pal, S. Pathak and S. Rajasekaran, 
   * "On Speeding-Up Parallel Jacobi Iterations for SVDs," 
@@ -112,20 +111,44 @@ template<typename _MatrixType> class JTS_SVD
   /** \brief Constructor performing the decomposition of given matrix.
    *
    * \param matrix the matrix to decompose
+   * \param params describes how algorithm will work
+   *               algo calculates modules of scalar product of rows/cols            
+   *               then takes params.tau part of greatest of them 
+   *               if greatest of them is less than threshold SVD is supposed to be got
+   *                  threshold = params.epsilon * matrix.squaredNorm()
+   *               look at this paper to have better understanding of how it works
+   *                  S. Pal, S. Pathak and S. Rajasekaran, 
+   *                  "On Speeding-Up Parallel Jacobi Iterations for SVDs,"
+   *               one this iteration is sweep
+   *               if amount of sweeps made reaches limit algo stops on current result
+   *               params.sweeps_factor is used to calculate this limit
+   *               sweps_factor equal to one means limit m_diagSize * (m_diagSize - 1) / 2
    * \param computationOptions optional parameter allowing to specify if you want full or thin U or V unitaries to be computed.
    *                           By default, none is computed. This is a bit-field, the possible bits are #ComputeFullU, #ComputeThinU,
    *                           #ComputeFullV, #ComputeThinV.
    *
    * Thin unitaries are only available if your matrix type has a Dynamic number of columns (for example MatrixXf).
    */
-  explicit JTS_SVD(const MatrixType& matrix, unsigned int computationOptions = 0)
+  explicit JTS_SVD(const MatrixType& matrix, const params_t &params = params_t(), unsigned int computationOptions = 0)
   {
-    compute(matrix, computationOptions);
+    compute(matrix, params, computationOptions);
   }
 
   /** \brief Method performing the decomposition of given matrix using custom options.
    *
    * \param matrix the matrix to decompose
+   * \param params describes how algorithm will work
+   *               algo calculates modules of scalar product of rows/cols            
+   *               then takes params.tau part of greatest of them 
+   *               if greatest of them is less than threshold SVD is supposed to be got
+   *                  threshold = params.epsilon * matrix.squaredNorm()
+   *               look at this paper to have better understanding of how it works
+   *                  S. Pal, S. Pathak and S. Rajasekaran, 
+   *                  "On Speeding-Up Parallel Jacobi Iterations for SVDs,"
+   *               one this iteration is sweep
+   *               if amount of sweeps made reaches limit algo stops on current result
+   *               params.sweeps_factor is used to calculate this limit
+   *               sweps_factor equal to one means limit m_diagSize * (m_diagSize - 1) / 2
    * \param computationOptions optional parameter allowing to specify if you want full or thin U or V unitaries to be computed.
    *                           By default, none is computed. This is a bit-field, the possible bits are #ComputeFullU, #ComputeThinU,
    *                           #ComputeFullV, #ComputeThinV.
@@ -137,8 +160,19 @@ template<typename _MatrixType> class JTS_SVD
   /** \brief Method performing the decomposition of given matrix using current options.
    *
    * \param matrix the matrix to decompose
-   *
-   * This method uses the current \a computationOptions, as already passed to the constructor or to compute(const MatrixType&, unsigned int).
+   * \param params describes how algorithm will work
+   *               algo calculates modules of scalar product of rows/cols            
+   *               then takes params.tau part of greatest of them 
+   *               if greatest of them is less than threshold SVD is supposed to be got
+   *                  threshold = params.epsilon * matrix.squaredNorm()
+   *               look at this paper to have better understanding of how it works
+   *                  S. Pal, S. Pathak and S. Rajasekaran, 
+   *                  "On Speeding-Up Parallel Jacobi Iterations for SVDs,"
+   *               one this iteration is sweep
+   *               if amount of sweeps made reaches limit algo stops on current result
+   *               params.sweeps_factor is used to calculate this limit
+   *               sweps_factor equal to one means limit m_diagSize * (m_diagSize - 1) / 2
+   * This method uses the current \a computationOptions, as already passed to the constructor or to compute(const MatrixType&, const params_t &, unsigned int).
    */
   JTS_SVD& compute(const MatrixType& matrix, const params_t &params)
   {
