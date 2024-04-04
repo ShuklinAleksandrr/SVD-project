@@ -13,16 +13,14 @@
 #include <algorithm>
 // не у всех эйген одинаково подключается
 // но этот костыль не везде заработает
+// выяснилось что при использовании cmake регистр имеет значение
 // https://stackoverflow.com/questions/142877/can-the-c-preprocessor-be-used-to-tell-if-a-file-exists
 #if __has_include(<eigen/core>)
-#include <eigen/core>
-#include <eigen/svd>
-#elif __has_include(<eigen3/eigen/core>)
-#include <eigen3/eigen/core>
-#include <eigen3/eigen/svd>
+# include <eigen/core>
+# include <eigen/svd>
 #elif __has_include(<eigen3/Eigen/Core>)
-#include <eigen3/Eigen/Core>
-#include <eigen3/Eigen/SVD>
+# include <eigen3/Eigen/Core>
+# include <eigen3/Eigen/SVD>
 #endif
 
 typedef struct
@@ -345,21 +343,14 @@ JTS_SVD<MatrixType>::compute_basic(const MatrixType& matrix, const params_t &par
 
 
 
-/** A^T = (BV^T)^T
-  * A = V B^T
-  * A^T = (BJ(VJ)^T)^T
+/** A^T = (BJ(VJ)^T)^T
   * A = VJ (BJ)^T
   * A = VJ (BJ)^T
   * A = VJ (USJ)^T
   * A = VJ J^T S^T U^T
+  * A = VJ J^T (US)^T
   * 
-  * Здесь что-то не так
-  * Я полагаю после поворотов, поскольку предел sweeps в тестовом примере, вроде бы,
-  * достигнут не был
-  * Отсюда вероятно проблема в том, что идет после (скорее всего в сортировке).
-  * Методом подбора мне удалось довести это дело до состояния, в котором
-  * результат умножения USV^T является корректным.
-  * Но менять row на col в разных местах и смотреть, что будет, я устал
+  * Код который будет здесь по большей части является копией compute_basic
   */
 template<typename MatrixType>
 JTS_SVD<MatrixType>&
@@ -412,11 +403,8 @@ JTS_SVD<MatrixType>::compute_transposed(const MatrixType& matrix, const params_t
       Scalar s = t * c;
 
       // нет уверенности, что с комплекснозначными заработает
-      // что делать подобрал наугад
       Eigen::JacobiRotation<Scalar> J(c, s);
-
       m_workMatrix.applyOnTheLeft(i, j, J.transpose());
-
       if (computeU()) m_matrixU.applyOnTheRight(i, j, J);
     }
   }
@@ -426,9 +414,8 @@ JTS_SVD<MatrixType>::compute_transposed(const MatrixType& matrix, const params_t
   {
     RealScalar a = m_workMatrix.row(i).norm();
     m_singularValues.coeffRef(i) = a;
-    if (computeV()) m_matrixV.col(i) = m_workMatrix.row(i) / a;
+    if (computeV()) m_matrixV.row(i) = m_workMatrix.row(i) / a;
   }
-
   
   /*** шаг 4. Сортировка, оставлено без изменений из эйгена ***/
   m_nonzeroSingularValues = m_diagSize;
@@ -446,9 +433,16 @@ JTS_SVD<MatrixType>::compute_transposed(const MatrixType& matrix, const params_t
       pos += i;
       std::swap(m_singularValues.coeffRef(i), m_singularValues.coeffRef(pos));
       if (computeU()) m_matrixU.col(pos).swap(m_matrixU.col(i));
-      if (computeV()) m_matrixV.col(pos).swap(m_matrixV.col(i));
+      if (computeV()) m_matrixV.row(pos).swap(m_matrixV.row(i));
     }
   }
+  /** В результате проделанных выше манипуляций получалось что
+    *   A = USV, а не USV^T
+    *   U и V можно считать унитарными
+    * То есть надо сделать так, чтобы вместо V получилось V^T
+    * Более адекватного и при этом рабочего способа я не придумал
+    */
+  if (computeV()) m_matrixV.transposeInPlace();
 
   m_isInitialized = true;
   return *this;

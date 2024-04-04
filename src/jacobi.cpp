@@ -3,7 +3,7 @@
 
 // если это делать по нормальному, то у меня компилятор немного ругается
 // было лень менять все на нечто нормальное
-#include "jacobi.h"
+#include "src/jacobi.h"
 
 /*
  * теперь здесь ничего не будет
@@ -23,7 +23,7 @@ int main()
     // for (int i = 0; i < 3; i++)
     //     cout << P2.indices()[i] << "\n";
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> m(10, 9);
+    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> m(9, 10);
     m << 1,  2,  3,  4,  5,  6,  7,  8,  9,
          10, 11, 12, 13, 14, 15, 16, 17, 18,
          19, 20, 21, 22, 23, 24, 25, 26, 27,
@@ -36,11 +36,12 @@ int main()
          82, 83, 84, 85, 86, 87, 88, 89, 90;
     // Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> m2 = m.transpose();
 
-    params_t params;    
+    params_t params;  
+    params.epsilon = 1e-18;  
     JTS_SVD<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>> jts_svd;
     jts_svd.compute(m, params, Eigen::ComputeFullU | Eigen::ComputeFullV);
 
-    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> S(10, 9);
+    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> S(9, 10);
     S.setZero();
 
     auto singVector = jts_svd.singularValues();
@@ -68,7 +69,11 @@ int main()
         cout << "\n";
     }
     cout << "\n";
-    cout << V * V.transpose();
+    cout << "got the problem\n" 
+         << "this is result of V^T * V\n"
+         << V.transpose() * V << "\n\n"
+         << "and this is result of V * V^T\n"
+         << V * V.transpose() << "\n\n";
 
     char c;
     cin >> c;
