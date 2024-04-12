@@ -74,9 +74,9 @@ protected:
         using matrix_mn = Eigen::Matrix<double, M, N>; //A
         using matrix_mm = Eigen::Matrix<double, M, M>; //U
 
-        matrix_mn Ad = A.cast<double>();//Согласно нашему алгоритму все почти все вычисления должны 
-        matrix_mm Ud = Ui.cast<double>();//производится с двойной точностью, поэтому переделываем тип
-        matrix_nn Vd = Vi.cast<double>();//всех матриц в double
+        matrix_mn Ad = A.template cast<double>();//Согласно нашему алгоритму все почти все вычисления должны 
+        matrix_mm Ud = Ui.template cast<double>();//производится с двойной точностью, поэтому переделываем тип
+        matrix_nn Vd = Vi.template cast<double>();//всех матриц в double
         //Далее все тип всех элементов также будет double. Но в конце, все матрицу будут приведены к
         //изначальному типу.
 
@@ -161,9 +161,9 @@ protected:
         matrix_nn V = Vd + Vd * G;//Вычисление уточнённых значений правых сингулярных векторов
 
         AOIR_SVD<T, M, N> ANS;
-        ANS.Set_V(V.cast<T>());// Приведение матриц к изначальному типу
-        ANS.Set_U(U.cast<T>());
-        ANS.Set_S(Sigma.cast<T>());
+        ANS.Set_V(V.template cast<T>());// Приведение матриц к изначальному типу
+        ANS.Set_U(U.template cast<T>());
+        ANS.Set_S(Sigma.template cast<T>());
         return ANS;
     }
 public:
