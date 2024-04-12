@@ -15,7 +15,10 @@
 // но этот костыль не везде заработает
 // выяснилось что при использовании cmake регистр имеет значение
 // https://stackoverflow.com/questions/142877/can-the-c-preprocessor-be-used-to-tell-if-a-file-exists
-#if __has_include(<eigen/core>)
+#if __has_include(<Eigen/Core>)
+# include <Eigen/Core>
+# include <Eigen/SVD>
+#elif __has_include(<eigen/core>)
 # include <eigen/core>
 # include <eigen/svd>
 #elif __has_include(<eigen3/Eigen/Core>)
@@ -23,7 +26,7 @@
 # include <eigen3/Eigen/SVD>
 #endif
 
-typedef struct
+typedef struct Params
 {
   float epsilon = 1e-9;
   float tau = 0.1;
