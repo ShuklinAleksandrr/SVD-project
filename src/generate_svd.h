@@ -4,15 +4,7 @@
 //  Created by Victoria Koreshkova on 29.03.2024.
 //
 #include <iostream>
-
-#if __has_include(<eigen/Dense>)
-    # include <eigen/Dense>
-#elif __has_include(<Eigen/Dense>)
-    #include <Eigen/Dense>
-#elif __has_include(<eigen3/Eigen/Dense>)
-    #include <eigen3/Eigen/Dense>
-#endif
-
+#include <Eigen/Dense>
 #include "ctime"
 #include "tuple"
 #include <random>
@@ -20,19 +12,6 @@
 #include <random>
 #include <iterator>
 #include <algorithm>
-
-
-//пример функции для generate_function 
-template<typename T>
-std::vector<T> generate_standard_distribution(int n)
-{
-    std::vector<T> tmp(n);
-    std::default_random_engine generator;
-    std::normal_distribution<T> disribution(T(0), T(1));
-    for (int i = 0; i < n; i++)
-        tmp[i] = std::abs(disribution(generator));
-    return tmp;
-}
 
 //rows - число строк
 //cols - число столбцов
@@ -59,7 +38,8 @@ class SVDGenerator
     MatrixVType V;
     MatrixSType S;
     SingValVector sigmas;
-    SingValVector (*generate_function)(int) = nullptr;
+    std::default_random_engine RNG;
+    std::uniform_real_distribution<T> distribution;
     int rows;
     int cols;
     int p;
@@ -77,13 +57,19 @@ class SVDGenerator
         std::sort(sigmas.begin(), sigmas.end(), std::greater_equal<T>());
     }
 
+    SingValVector gen_rand_nums(int n){
+        SingValVector tmp(n);
+        for (int i = 0; i < n; ++i)
+            tmp[i] = distribution(RNG);
+        return tmp;
+    }
+
     public:
 
-    SVDGenerator(int rows1, int cols1, SingValVector (*gnrt_function)(int))
+    SVDGenerator(int rows1, int cols1, const std::default_random_engine RNG_src, const std::uniform_real_distribution<double> dist_src)
     {
         assert(rows1 > 0);
         assert(cols1 > 0);
-        assert(gnrt_function);
 
         rows = rows1;
         cols = cols1;
@@ -93,7 +79,8 @@ class SVDGenerator
         V = MatrixVType::Zero(cols, cols);
         S = MatrixSType::Zero(rows, cols);
 
-        generate_function = gnrt_function;
+        RNG = RNG_src;
+        distribution = dist_src; 
         SingValVector sigmas1 = SingValVector(p);
         std::fill(sigmas1.begin(), sigmas1.end(), T(0));
 
@@ -128,7 +115,7 @@ class SVDGenerator
         generatedFLG = true;
         
         std::fill(sigmas.begin(), sigmas.end(), T(0));
-        SingValVector nonzero_sigmas = generate_function(nonzeros);
+        SingValVector nonzero_sigmas = gen_rand_nums(nonzeros);
         std::copy(nonzero_sigmas.begin(), nonzero_sigmas.end(), sigmas.begin());
         std::sort(sigmas.begin(), sigmas.end(), std::greater_equal<T>());
         //U,V-ортогональные матрицы, SIGMA - диагональная матрица
