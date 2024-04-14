@@ -40,6 +40,7 @@ class SVDGenerator
     SingValVector sigmas;
     std::default_random_engine RNG;
     std::uniform_real_distribution<T> distribution;
+    bool includeBoundaries;
     int rows;
     int cols;
     int p;
@@ -53,20 +54,23 @@ class SVDGenerator
         {
             sigmas.push_back(sigmas1[i]);
         }
-
-        std::sort(sigmas.begin(), sigmas.end(), std::greater_equal<T>());
+        std::sort(sigmas.begin(), sigmas.end(), std::greater<T>());
     }
 
     SingValVector gen_rand_nums(int n){
         SingValVector tmp(n);
         for (int i = 0; i < n; ++i)
             tmp[i] = distribution(RNG);
+        if (includeBoundaries) {
+            tmp[0]=distribution.a();
+            tmp[1]=distribution.b();
+        }
         return tmp;
     }
 
     public:
 
-    SVDGenerator(int rows1, int cols1, const std::default_random_engine RNG_src, const std::uniform_real_distribution<double> dist_src)
+    SVDGenerator(int rows1, int cols1, const std::default_random_engine RNG_src, const std::uniform_real_distribution<T> dist_src, bool includeBoundaries=false)
     {
         assert(rows1 > 0);
         assert(cols1 > 0);
@@ -83,7 +87,6 @@ class SVDGenerator
         distribution = dist_src; 
         SingValVector sigmas1 = SingValVector(p);
         std::fill(sigmas1.begin(), sigmas1.end(), T(0));
-
         set_sing_vals(sigmas1);
     }
 
@@ -110,14 +113,12 @@ class SVDGenerator
 
     void generate(int nonzeros)
     {
-        
         assert(nonzeros <= p);
         generatedFLG = true;
-        
         std::fill(sigmas.begin(), sigmas.end(), T(0));
         SingValVector nonzero_sigmas = gen_rand_nums(nonzeros);
         std::copy(nonzero_sigmas.begin(), nonzero_sigmas.end(), sigmas.begin());
-        std::sort(sigmas.begin(), sigmas.end(), std::greater_equal<T>());
+        std::sort(sigmas.begin(), sigmas.end(), std::greater<T>());
         //U,V-ортогональные матрицы, SIGMA - диагональная матрица
         
         /*Создается две случайные матрицы нужных размеров - T1 и T2,элементы - случайные числа от 0.1 до 10. QR разложение раскладывает матрицу на произведение двух: ортогональной Q и верхнедиагональной R

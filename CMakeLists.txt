@@ -11,7 +11,7 @@ SET(SOURCE_FILES
   src/iterative_refinement.cpp
   src/jacobi.cpp
   src/generate_svd.cpp
-  #src/testing.cpp
+  src/testing.cpp
 )
 SET(HEADER_FILES
   src/iterative_refinement.h
