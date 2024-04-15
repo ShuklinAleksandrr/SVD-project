@@ -300,7 +300,7 @@ JTS_SVD<MatrixType>::compute_basic(const MatrixType& matrix, const params_t &par
   for (int sweeps_cur = 0; sweeps_cur < SWEEPS_MAX; ++sweeps_cur)
   {
     // пока пусть будет так, хотя было бы неплохо обойтись только эйгеном
-    using pivot = typename std::tuple<Scalar, int, int>;
+    using pivot = typename std::tuple<RealScalar, int, int>;
     std::vector<pivot> pivots;
     pivots.reserve(m_diagSize * (m_diagSize - 1) / 2);
     
@@ -401,7 +401,7 @@ JTS_SVD<MatrixType>::compute_transposed(const MatrixType& matrix, const params_t
   for (int sweeps_cur = 0; sweeps_cur < SWEEPS_MAX; ++sweeps_cur)
   {
     // пока пусть будет так, хотя было бы неплохо обойтись только эйгеном
-    using pivot = typename std::tuple<Scalar, int, int>;
+    using pivot = typename std::tuple<RealScalar, int, int>;
     std::vector<pivot> pivots;
     pivots.reserve(m_diagSize * (m_diagSize - 1) / 2);
     
