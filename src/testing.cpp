@@ -1,4 +1,5 @@
 //Александр Нам, КМБО-04-20
+//Any questions: alexnam16@gmail.com
 
 #include "generate_svd.h"
 
@@ -9,6 +10,9 @@
 #include <iomanip>
 #include <fstream>
 #include <cassert>
+
+
+//Назначение функции - тестирование и оценка точности методов SVD разложения, унаследованных от SVD Base 
 
 /*
  Функция возвращает матрицу-таблицу формата:
@@ -31,11 +35,20 @@
     7. Результат исследования не печатается в консоль, а сохраняется в файл, название выбирается первым параметром
 */
 
+/*
+Функция принимает параметрами: 
+- fileName: имя текстового файла, куда будет сохранен результат, т.е. таблица
+- SigmaMaxMinRatiosVec: вектор сооотношения максимального и минимального сингулярных чисел;
+                        нужен т.к. ошибка может сильно отличаться у разных соотношений сингулярных чисел;
+- MatSizesVec: вектор размеров матриц для теста;
+- n: количество матриц, которые генерируются с одинаковыми параметрами для усреднения выборки и подсчета средних
+*/
 template<typename T, template <typename> class gen_cl, template <typename> class svd_cl> 
 void svd_test_func(std::string fileName, const std::vector<T>& SigmaMaxMinRatiosVec, const std::vector<std::pair<int,int>>& MatSizesVec, const int n){
 
 // -----------объявление локальных функций и инициализация-------------
 
+    //лямбда-функция печати таблицы, вторым параметром принимает матрицу строк(так реализована таблица)
     auto printTable = [](std::ostream& out, const std::vector<std::vector<std::string>>& data){
         if (data.empty()) return;
         // Определение ширины столбцов
@@ -55,13 +68,14 @@ void svd_test_func(std::string fileName, const std::vector<T>& SigmaMaxMinRatios
         }
     };
 
+    //лямбда-функция преобразования числа в строку
     auto num2str = [](T value){
         std::ostringstream oss;
         oss << value;
         return oss.str();
     };
 
-    //нужно для того, чтобы более менее равномерно выводить прогресс работы
+    //нужно для того, чтобы более менее равномерно выводить прогресс работы, больше размер матрицы -> дольше будет вычисляться;
     T generalSum=0;
     for (const auto& MatSize : MatSizesVec){
         generalSum += (MatSize.first*MatSize.second);
@@ -70,8 +84,10 @@ void svd_test_func(std::string fileName, const std::vector<T>& SigmaMaxMinRatios
     using MatrixDynamic = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>;
     using VectorDynamic = Eigen::Vector<T, Eigen::Dynamic>;
 
+    //интервалы, в которых будут генерироваться сингулярные числа для теста на малых по модулю сингулярных числах и больших
     const std::vector<std::pair<T,T>> Intervals = {{0,1}, {1,100}};
     
+    //сам генератор чисел
     std::random_device rd; //случайное число - значение сида
     std::default_random_engine gen(rd()); //генерация последовательности псевдослучайных цифр
     
@@ -84,7 +100,7 @@ void svd_test_func(std::string fileName, const std::vector<T>& SigmaMaxMinRatios
     T progress=0; //инициализация аккумулятора прогресса
 
     MatrixDynamic U_true, S_true, V_true, U_calc, V_calc, V_calc_transpose;
-    VectorDynamic SV_calc;
+    VectorDynamic SV_calc; //аналог S_true, но не матрица, а вектор сингулярных значений
 
 // -----------------------
     for (const auto& MatSize : MatSizesVec){
@@ -115,6 +131,7 @@ void svd_test_func(std::string fileName, const std::vector<T>& SigmaMaxMinRatios
                   заметим, что прошлый assert гарантирует, что a < b/SigmaRatio
                 */
 
+
                 std::uniform_real_distribution<T> distrSigmaMin(interval.first, interval.second/SigmaMaxMinRatio);
                 T sigma_min=distrSigmaMin(gen); 
                 T sigma_max=SigmaMaxMinRatio*sigma_min;
@@ -125,10 +142,13 @@ void svd_test_func(std::string fileName, const std::vector<T>& SigmaMaxMinRatios
 
                 //инициализация аккумуляторов выводимых в таблицу значений характеристик
                 T avg_dev_UUt=0, avg_dev_UtU=0, avg_dev_VVt=0, avg_dev_VtV=0, avg_relErr_sigma=0;
-                //пункты 2.1. - 2.5.
+
+                //цикл для усреднения результатов(выборка из n матриц с одинаковыми параметрами) 
                 for (int i=1; i<=n; ++i){   
-                    gen_cl<T> svd_gen(N, M, gen, distr, true);
-                    svd_gen.generate(minNM);
+                    gen_cl<T> svd_gen(N, M, gen, distr, true); //инициализация параметров генерации
+                    svd_gen.generate(minNM); //генерация
+
+                    //подсчет результатов:
                     U_true = svd_gen.MatrixU(); S_true = svd_gen.MatrixS(); V_true = svd_gen.MatrixV();
                     svd_cl<MatrixDynamic> svd_func((U_true*S_true*V_true.transpose()).eval(), Eigen::ComputeFullU | Eigen::ComputeFullV);
                     U_calc = svd_func.matrixU(); SV_calc = svd_func.singularValues(); V_calc = svd_func.matrixV(); 
@@ -152,7 +172,7 @@ void svd_test_func(std::string fileName, const std::vector<T>& SigmaMaxMinRatios
         }
     }
 
-    //сохранение таблицы в файл, в консоль такая громоздкая таблица просто не выводится в нормальном виде
+    //непосредственно сохранение таблицы в файл
     std::ofstream file(fileName);
     if (file) {
         printTable(file, table);
@@ -165,6 +185,13 @@ void svd_test_func(std::string fileName, const std::vector<T>& SigmaMaxMinRatios
 int main(){
     auto start = std::chrono::high_resolution_clock::now();
 
+    //генерируеся таблицу в файле "jacobi_test_table.txt" теста метода Eigen::JacobiSVD
+    //с соотношением сингулярных чисел:  1.01, 1.2, 2, 5, 10, 50      ---    6
+    //причем каждое соотношение относится к двум интервалам сингулярных чисел: 
+    //                      маленьких {0,1}, больших {1,100} (это не параметризованно)   ---   2
+    //с матрицами размеров: {3,3}, {5,5}, {10,10}, {20,20}, {50,50}, {100,100}   ---   6
+    //6*2*6 = 72 - всего столько строк будет в таблице
+    //размер выборки для усреднения: 20
     svd_test_func<double, SVDGenerator, Eigen::JacobiSVD>("jacobi_test_table.txt",
                                  {1.01, 1.2, 2, 5, 10, 50},
                                  {{3,3}, {5,5}, {10,10}, {20,20}, {50,50}, {100,100}}, 
