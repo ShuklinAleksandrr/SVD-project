@@ -20,7 +20,9 @@
 //sigmas - массив сингулярных значений
 //U - матрица U
 //V - матрица V
-//generate(int nonzeros) - генерация SVD разложения, где спектр матрицы содержит n ненулевых значений 
+//RNG - std::default_random_generator, генератор случайных чисел с заданным seed
+//distribution -  std::uniform_real_distribution(a, b), заданное равномерное распределение
+//includeBoundaries - bool, включать ли в сингулярные числа границы промежутка
 
 template <typename T,int M = Eigen::Dynamic,  int N = Eigen::Dynamic>
 class SVDGenerator
