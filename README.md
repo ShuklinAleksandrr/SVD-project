@@ -27,18 +27,18 @@ Src — Исходный код
 
 Theory — алгоритмы СВД
 
- * bidiagonal svd — алгоритмы с бидиагональным СВД
+ * bidiagonal svd — алгоритмы с бидиагональным СВД[https://github.com/MathPerv/SVD-project/tree/main/theory/bidiagonal%20svd]
  
- * iterative refinement — алгоритмы итеративного вычисления СВД
+ * iterative refinement — алгоритмы итеративного вычисления СВД[https://github.com/MathPerv/SVD-project/tree/main/theory/iterative%20refinement]
  
- * Результат тестирования алгоритмов — результаты тестирования алгоритмов JTS
+ * Результат тестирования алгоритмов — результаты тестирования алгоритмов JTS[https://github.com/MathPerv/SVD-project/tree/main/theory/jacobi]
  
- * other — Другие алгоритмы
+ * other — Другие алгоритмы[https://github.com/MathPerv/SVD-project/tree/main/theory/other]
 
 ## Руководители проекта
 
 * Парфенов Денис Васильевич
-  promssterden@yandex.ru
+  promasterden@yandex.ru
 
 * Дроздов Игорь Юрьевич
   drozdovigor94@gmail.com
