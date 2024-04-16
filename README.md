@@ -18,8 +18,10 @@ cmake --build .
 ## Руководители проекта
 
 * Парфенов Денис Васильевич
+  promssterden@yandex.ru
 
 * Дроздов Игорь Юрьевич
+  drozdovigor94@gmail.com
 
 ## Участники проекта
 
