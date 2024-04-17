@@ -114,6 +114,9 @@ template<typename _MatrixType> class JTS_SVD
   /** \brief Constructor performing the decomposition of given matrix.
    *
    * \param matrix the matrix to decompose
+   * \param computationOptions optional parameter allowing to specify if you want full or thin U or V unitaries to be computed.
+   *                           By default, none is computed. This is a bit-field, the possible bits are #ComputeFullU, #ComputeThinU,
+   *                           #ComputeFullV, #ComputeThinV.
    * \param params describes how algorithm will work
    *               algo calculates modules of scalar product of rows/cols            
    *               then takes params.tau part of greatest of them 
@@ -126,20 +129,20 @@ template<typename _MatrixType> class JTS_SVD
    *               if amount of sweeps made reaches limit algo stops on current result
    *               params.sweeps_factor is used to calculate this limit
    *               sweps_factor equal to one means limit m_diagSize * (m_diagSize - 1) / 2
-   * \param computationOptions optional parameter allowing to specify if you want full or thin U or V unitaries to be computed.
-   *                           By default, none is computed. This is a bit-field, the possible bits are #ComputeFullU, #ComputeThinU,
-   *                           #ComputeFullV, #ComputeThinV.
    *
    * Thin unitaries are only available if your matrix type has a Dynamic number of columns (for example MatrixXf).
    */
-  explicit JTS_SVD(const MatrixType& matrix, const params_t &params = params_t(), unsigned int computationOptions = 0)
+  explicit JTS_SVD(const MatrixType& matrix, unsigned int computationOptions = 0, const params_t &params = params_t())
   {
-    compute(matrix, params, computationOptions);
+    compute(matrix, computationOptions, params);
   }
 
   /** \brief Method performing the decomposition of given matrix using custom options.
    *
    * \param matrix the matrix to decompose
+   * \param computationOptions optional parameter allowing to specify if you want full or thin U or V unitaries to be computed.
+   *                           By default, none is computed. This is a bit-field, the possible bits are #ComputeFullU, #ComputeThinU,
+   *                           #ComputeFullV, #ComputeThinV.
    * \param params describes how algorithm will work
    *               algo calculates modules of scalar product of rows/cols            
    *               then takes params.tau part of greatest of them 
@@ -152,13 +155,10 @@ template<typename _MatrixType> class JTS_SVD
    *               if amount of sweeps made reaches limit algo stops on current result
    *               params.sweeps_factor is used to calculate this limit
    *               sweps_factor equal to one means limit m_diagSize * (m_diagSize - 1) / 2
-   * \param computationOptions optional parameter allowing to specify if you want full or thin U or V unitaries to be computed.
-   *                           By default, none is computed. This is a bit-field, the possible bits are #ComputeFullU, #ComputeThinU,
-   *                           #ComputeFullV, #ComputeThinV.
    *
    * Thin unitaries are only available if your matrix type has a Dynamic number of columns (for example MatrixXf).
    */
-  JTS_SVD& compute(const MatrixType& matrix, const params_t &params, unsigned int computationOptions);
+  JTS_SVD& compute(const MatrixType& matrix, unsigned int computationOptions, const params_t &params);
 
   /** \brief Method performing the decomposition of given matrix using current options.
    *
@@ -179,7 +179,7 @@ template<typename _MatrixType> class JTS_SVD
    */
   JTS_SVD& compute(const MatrixType& matrix, const params_t &params)
   {
-    return compute(matrix, params, m_computationOptions);
+    return compute(matrix, m_computationOptions, params);
   }
 
   using Base::computeU;
@@ -261,8 +261,8 @@ void JTS_SVD<MatrixType>::allocate(Eigen::Index rows, Eigen::Index cols, unsigne
  
 template<typename MatrixType>
 JTS_SVD<MatrixType>&
-JTS_SVD<MatrixType>::compute(const MatrixType& matrix, const params_t &params,
-                             unsigned int computationOptions)
+JTS_SVD<MatrixType>::compute(const MatrixType& matrix, unsigned int computationOptions,
+                             const params_t &params)
 {
   allocate(matrix.rows(), matrix.cols(), computationOptions);
 
