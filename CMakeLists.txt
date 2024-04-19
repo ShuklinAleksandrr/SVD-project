@@ -11,7 +11,6 @@ SET(SOURCE_FILES
   src/iterative_refinement.cpp
   src/jacobi.cpp
   src/generate_svd.cpp
-  src/testing.cpp
 )
 SET(HEADER_FILES
   src/iterative_refinement.h
@@ -31,3 +30,7 @@ install(
   FILES ${HEADER_FILES} 
   DESTINATION include/library_name
 )
+
+add_executable (svd_test src/testing.cpp)
+target_compile_features(svd_test PRIVATE cxx_std_20)
+target_link_libraries(svd_test eigen)

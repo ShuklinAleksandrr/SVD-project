@@ -39,7 +39,7 @@ int main()
     params_t params;  
     params.epsilon = 1e-18;  
     JTS_SVD<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic>> jts_svd;
-    jts_svd.compute(m, params, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    jts_svd.compute(m, Eigen::ComputeFullU | Eigen::ComputeFullV, params);
 
     Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> S(9, 10);
     S.setZero();
