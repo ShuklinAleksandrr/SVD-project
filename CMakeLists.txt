@@ -16,11 +16,13 @@ SET(HEADER_FILES
   src/iterative_refinement.h
   src/generate_svd.h
   src/jacobi.h
+  src/dqds.h
 )
 
 add_library(svd ${SOURCE_FILES} ${HEADER_FILES}) 
 target_compile_features(svd PRIVATE cxx_std_20)
 target_link_libraries(svd eigen)
+target_link_libraries(svd lapacke)
 
 install(
   TARGETS svd
@@ -34,3 +36,4 @@ install(
 add_executable (svd_test src/testing.cpp)
 target_compile_features(svd_test PRIVATE cxx_std_20)
 target_link_libraries(svd_test eigen)
+target_link_libraries(svd_test lapacke)
