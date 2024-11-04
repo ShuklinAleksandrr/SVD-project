@@ -191,4 +191,4 @@
 
 ## Список литературы ##
 Lanczos and the Riemannian SVD in information retrieval applications-Fierro-Jiang-2005.pdf
-[Lanczos Methods in SLEPc](https://slepc.upv.es/documentation/reports/str5.pdf)
+<p>[Lanczos Methods in SLEPc](https://slepc.upv.es/documentation/reports/str5.pdf)</p>
