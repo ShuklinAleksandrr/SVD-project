@@ -144,25 +144,25 @@ C<sup>n*n</sup> вида : K<sub>m</sub>(v,A) = span{v,Av,A<sup>2</sup>v,...,A<s
 
 ## Алгоритм 4 (Ланцош с явным перезапуском)
 
-**Вход**: Матрица <code>A</code>, начальный вектор <code>v<sub>1</sub></code>, и размер подпространства <code>m</code>  
-**Выход**: Частичное собственное разложение <code>AV<sub>k</sub> = V<sub>k</sub>&Theta;<sub>k</sub></code>, где <code>&Theta;<sub>k</sub> = diag(&theta;<sub>1</sub>, &hellip;, &theta;<sub>k</sub>)</code>
+**Вход**: Матрица A, начальный вектор v<sub>1</sub>, и размер подпространства m  
+**Выход**: Частичное собственное разложение AV<sub>k</sub> = V<sub>k</sub>&Theta;<sub>k</sub>, где &Theta;<sub>k</sub> = diag(&theta;<sub>1</sub>, &hellip;, &theta;<sub>k</sub>)
 
-1. Нормализовать <code>v<sub>1</sub></code>
-2. Инициализировать <code>V<sub>m</sub> = [v<sub>1</sub>]</code>, <code>k = 0</code>
+1. Нормализовать v<sub>1</sub>
+2. Инициализировать V<sub>m</sub> = [v<sub>1</sub>], k = 0
 
 *Цикл перезапуска*
-1. Выполнить <code>m - k</code> шагов Ланцоша с дефляцией (Алгоритм 3)
-2. Вычислить собственные пары матрицы <code>T<sub>m</sub></code>: <code>T<sub>m</sub> y<sub>i</sub> = y<sub>i</sub> &theta;<sub>i</sub></code>
-3. Оценить нормы остаточных членов, <code>&tau;<sub>i</sub> = &beta;<sub>m+1</sub> |e<sup>*</sup><sub>m</sub> y<sub>i</sub>|</code>
-4. Зафиксировать сходимые собственные пары, обновить значение <code>k</code>
-5. <code>V<sub>m</sub> = V<sub>m</sub> Y</code>
+1. Выполнить m - k шагов Ланцоша с дефляцией (Алгоритм 3)
+2. Вычислить собственные пары матрицы T<sub>m</sub>: T<sub>m y<sub>i</sub> = y<sub>i</sub> &theta;<sub>i</sub>
+3. Оценить нормы остаточных членов, &tau;<sub>i</sub> = &beta;<sub>m+1</sub> |e<sup>*</sup><sub>m</sub> y<sub>i</sub>|
+4. Зафиксировать сходимые собственные пары, обновить значение k
+5. V<sub>m</sub> = V<sub>m</sub> Y
 
 *Примечание*: В Алгоритме 4 ведущая подматрица <code>T</code>, соответствующая зафиксированным векторам, является диагональной, поэтому некоторые операции можно пропустить для этой части.
 Потеря ортогональности в контексте перезапуска метода Ланцоша
 
 В методе Ланцоша с перезапуском также необходимо учитывать потерю ортогональности. В случае использования простой схемы явного перезапуска (Алгоритм 4) можно безопасно применять любые из методов, описанных в разделе 2, так как полная ортогональность векторов Ланцоша не требуется для корректного выполнения перезапуска. Однако в случае локальной ортогонализации следует учитывать следующие моменты:
 
-- Поскольку значение <code>m</code> (максимально допустимая размерность подпространства) обычно значительно меньше, чем <code>n</code> (размерность матрицы), эвристические подходы, предложенные Каллумом и Уиллоуби [1985], не могут быть применены. Поэтому следует использовать другой метод для отбраковки ложных собственных значений, а также для удаления избыточных дубликатов. Один из возможных подходов заключается в явном вычислении нормы остатка для каждой сходимой собственной пары, а затем, среди правильных значений, принятии только первой копии (это подробнее объясняется в разделе 3).
+- Поскольку значение m (максимально допустимая размерность подпространства) обычно значительно меньше, чем n (размерность матрицы), эвристические подходы, предложенные Каллумом и Уиллоуби [1985], не могут быть применены. Поэтому следует использовать другой метод для отбраковки ложных собственных значений, а также для удаления избыточных дубликатов. Один из возможных подходов заключается в явном вычислении нормы остатка для каждой сходимой собственной пары, а затем, среди правильных значений, принятии только первой копии (это подробнее объясняется в разделе 3).
 
 - Вектор для перезапуска должен быть явно ортогонализован относительно зафиксированных векторов.
 ## Имплементация ##
@@ -201,8 +201,72 @@ C<sup>n*n</sup> вида : K<sub>m</sub>(v,A) = span{v,Av,A<sup>2</sup>v,...,A<s
 
 Эта проверка в конце Алгоритма 5 необходима только для локальной ортогонализации. Стратегия заключается в следующем: собственные значения, которые повторяются в текущей тридиагональной матрице <code>T<sub>m</sub></code> после перезапуска, просто отбрасываются, исходя из предположения, что, если они действительно повторяются, то они появятся в следующем перезапуске. Для остальных собственных значений явно вычисляется истинная норма остатка <code>&#124;A x<sub>i</sub> − &lambda;<sub>i</sub>x<sub>i</sub>&#124;<sub>2</sub></code>, чтобы гарантировать, что принимаются только те пары, у которых норма остатка лежит в пределах допустимой погрешности.
 
-Для детального сравнения различных стратегий ортогонализации, реализованных в SLEPc, как с точки зрения производительности, так и числовой устойчивости, рекомендуется обратиться к работе Hernandez и др. [2007].
+Теперь перейдем к описанию кода
+нас интересуют три функции: SVDTwoSideLanczos,SVDOneSideLanczos и  SVDSolve_Lanczos
+начнём сначала
+SVDTwoSideLanczos
+<p><code>
+PetscErrorCode SVDTwoSideLanczos(SVD svd,PetscReal *alpha,PetscReal *beta,BV V,BV U,PetscInt k,PetscInt *n,PetscBool *breakdown)</code></p>
+тут alpha и beta: массивы в которую будут сохраняться элементы, связанные с сингулярными значениями. V,U: блоки векторов для ортонормализации, k: текущий идекс итерации ,n: указатель на количество итераицй ,breakdown: указатель на флаг, который указывает, произошел ли сбой из-за линейной зависимости.</p>
+<p><code>
+PetscInt       i;
+Vec            u,v;
+PetscBool      lindep=PETSC_FALSE;
+PetscFunctionBegin;
+</code></p>
+Тут объявляются переменные и макрос для начала выполнения кода в функции PETSc.
+<p><code>
+  PetscCall(BVGetColumn(svd->V,k,&v));
+  PetscCall(BVGetColumn(svd->U,k,&u));
+  PetscCall(MatMult(svd->A,v,u));
+  PetscCall(BVRestoreColumn(svd->V,k,&v));
+  PetscCall(BVRestoreColumn(svd->U,k,&u));
+  PetscCall(BVOrthonormalizeColumn(svd->U,k,PETSC_FALSE,alpha+k,&lindep));
+  if (PetscUnlikely(lindep)) {
+    *n = k;
+    if (breakdown) *breakdown = lindep;
+    PetscFunctionReturn(PETSC_SUCCESS);
+  }  
+</code></p>
+тут происходит извлечение к-го столбца из матриц V и U, извлечённые слобцы записываются в переменные v и u
+Далее идёт умножение матрицы А на эти вектора, после чего матрицы V и U приходят в исходное состояние. После чего выполняется ортонормализация к-го столбца матрицы U. результат сохранятеся в массив alpha[k], lindep указывает произошла ли линейная зависимость, если да, то итерации прекращаются, в переменной n сохранятеся количество успешыных итераций и если был передан флаг breakdown, он устанавливается на true
+
+  for (i=k+1;i<*n;i++) {
+    PetscCall(BVGetColumn(svd->V,i,&v));
+    PetscCall(BVGetColumn(svd->U,i-1,&u));
+    PetscCall(MatMult(svd->AT,u,v));
+    PetscCall(BVRestoreColumn(svd->V,i,&v));
+    PetscCall(BVRestoreColumn(svd->U,i-1,&u));
+    PetscCall(BVOrthonormalizeColumn(svd->V,i,PETSC_FALSE,beta+i-1,&lindep));
+    if (PetscUnlikely(lindep)) {
+      *n = i;
+      break;
+    }
+    PetscCall(BVGetColumn(svd->V,i,&v));
+    PetscCall(BVGetColumn(svd->U,i,&u));
+    PetscCall(MatMult(svd->A,v,u));
+    PetscCall(BVRestoreColumn(svd->V,i,&v));
+    PetscCall(BVRestoreColumn(svd->U,i,&u));
+    PetscCall(BVOrthonormalizeColumn(svd->U,i,PETSC_FALSE,alpha+i,&lindep));
+    if (PetscUnlikely(lindep)) {
+      *n = i;
+      break;
+    }
+  }
+
+  if (!lindep) {
+    PetscCall(BVGetColumn(svd->V,*n,&v));
+    PetscCall(BVGetColumn(svd->U,*n-1,&u));
+    PetscCall(MatMult(svd->AT,u,v));
+    PetscCall(BVRestoreColumn(svd->V,*n,&v));
+    PetscCall(BVRestoreColumn(svd->U,*n-1,&u));
+    PetscCall(BVOrthogonalizeColumn(svd->V,*n,NULL,beta+*n-1,&lindep));
+  }
+  if (breakdown) *breakdown = lindep;
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+</code></p>
 
 ## Список литературы ##
 Lanczos and the Riemannian SVD in information retrieval applications-Fierro-Jiang-2005.pdf
-<p>[Lanczos Methods in SLEPc](https://slepc.upv.es/documentation/reports/str5.pdf)</p>
+<p><a href="https://slepc.upv.es/documentation/reports/str5.pdf">Lanczos Methods in SLEPc</a></p>
