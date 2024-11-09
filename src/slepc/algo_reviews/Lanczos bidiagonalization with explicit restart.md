@@ -204,7 +204,7 @@ C<sup>n*n</sup> вида : K<sub>m</sub>(v,A) = span{v,Av,A<sup>2</sup>v,...,A<s
 Теперь перейдем к описанию кода
 нас интересуют три функции: SVDTwoSideLanczos,SVDOneSideLanczos и  SVDSolve_Lanczos
 начнём сначала
-SVDTwoSideLanczos
+### SVDTwoSideLanczos ###
 <p><code>
 PetscErrorCode SVDTwoSideLanczos(SVD svd,PetscReal *alpha,PetscReal *beta,BV V,BV U,PetscInt k,PetscInt *n,PetscBool *breakdown)</code></p>
 тут alpha и beta: массивы в которую будут сохраняться элементы, связанные с сингулярными значениями. V,U: блоки векторов для ортонормализации, k: текущий идекс итерации ,n: указатель на количество итераицй ,breakdown: указатель на флаг, который указывает, произошел ли сбой из-за линейной зависимости.</p>
@@ -229,8 +229,8 @@ PetscFunctionBegin;
   }  
 </code></p>
 тут происходит извлечение к-го столбца из матриц V и U, извлечённые слобцы записываются в переменные v и u
-Далее идёт умножение матрицы А на эти вектора, после чего матрицы V и U приходят в исходное состояние. После чего выполняется ортонормализация к-го столбца матрицы U. результат сохранятеся в массив alpha[k], lindep указывает произошла ли линейная зависимость, если да, то итерации прекращаются, в переменной n сохранятеся количество успешыных итераций и если был передан флаг breakdown, он устанавливается на true
-
+Далее идёт умножение матрицы А на эти вектора, после чего матрицы V и U приходят в исходное состояние. После чего выполняется ортонормализация к-го столбца матрицы U. результат сохранятеся в массив alpha, lindep указывает произошла ли линейная зависимость, если да, то итерации прекращаются, в переменной n сохранятеся количество успешыных итераций и если был передан флаг breakdown, он устанавливается на true
+<p><code>
   for (i=k+1;i<*n;i++) {
     PetscCall(BVGetColumn(svd->V,i,&v));
     PetscCall(BVGetColumn(svd->U,i-1,&u));
@@ -253,7 +253,15 @@ PetscFunctionBegin;
       break;
     }
   }
-
+</code></p>
+тут выполняются итерации алгоритма Ланцоша с i = k + 1 до n-1.
+Сначала извлекаются столбцы из матриц V и U с индексами i и i-1,
+Выполняется умножение транспонированной матрицы A на вектор u, результат сохраняется в v,
+матрицы V U возвращаются к первоначальному виду,
+Выполняется ортонормализация выполняется для V, результат сохраняется массив beta,
+Если возникает линейная зависимость цикл завершается.
+После выполняются аналогичные действия для матрицы A.
+<p><code>
   if (!lindep) {
     PetscCall(BVGetColumn(svd->V,*n,&v));
     PetscCall(BVGetColumn(svd->U,*n-1,&u));
@@ -266,7 +274,15 @@ PetscFunctionBegin;
   PetscFunctionReturn(PETSC_SUCCESS);
 }
 </code></p>
+После окончания всех итераций если линйеной зависимости нет, выполняетсся дополнительная ортогонализация для последнего столбца. В самом конце функция возвпращает статус выполнения и устанавливается значение флага breakdown на true.
+
+### SVDOneSideLanczos ###
+Входные данные почти теже, добавляется u_1 это вектор который будет спользоваться для хранения промежуточных значений
+<p><code>
+  
+</code></p>
 
 ## Список литературы ##
-Lanczos and the Riemannian SVD in information retrieval applications-Fierro-Jiang-2005.pdf
+<p>Lanczos and the Riemannian SVD in information retrieval applications-Fierro-Jiang-2005.pdf</p>
 <p><a href="https://slepc.upv.es/documentation/reports/str5.pdf">Lanczos Methods in SLEPc</a></p>
+<p><a href="https://slepc.upv.es/documentation/reports/str8.pdf">Restarted Lanczos Bidiagonalization for the SVD in SLEPc</a></p>
