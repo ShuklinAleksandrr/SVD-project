@@ -130,17 +130,17 @@ C<sup>n*n</sup> вида : K<sub>m</sub>(v,A) = span{v,Av,A<sup>2</sup>v,...,A<s
 
 ## Алгоритм 3 (Ланцош с дефляцией)
 
-**Вход**: Матрица <code>A</code>, количество шагов <code>m</code>, матрицы <code>V<sub>k</sub></code>, <code>T<sub>k</sub></code> при <code>k &lt; m</code>, и начальный вектор <code>v<sub>k+1</sub></code> с нормой 1  
-**Выход**: <code>(V<sub>m</sub>, T<sub>m</sub>, v<sub>m+1</sub>, &beta;<sub>m+1</sub>)</code> так, что <code>AV<sub>m</sub> - V<sub>m</sub>T<sub>m</sub> = &beta;<sub>m+1</sub> v<sub>m+1</sub> e<sup>*</sup><sub>m</sub></code>
+**Вход**: Матрица A</code>, количество шагов m, матрицы V<sub>k</sub> - матрица V после к-го шага алгоритма, T<sub>k</sub> - матрица T после к-го шага алгоритма, при k &lt; m, и начальный вектор v<sub>k+1</sub> с нормой 1  
+**Выход**: (V<sub>m</sub>, T<sub>m</sub>, v<sub>m+1</sub>, &beta;<sub>m+1</sub>)</code> так, что <code>AV<sub>m</sub> - V<sub>m</sub>T<sub>m</sub> = &beta;<sub>m+1</sub> v<sub>m+1</sub> e<sup>*</sup><sub>m</sub>
 
-Для <code>j = k + 1, &hellip;, m</code>
-1. <code>u<sub>j+1</sub> = Av<sub>j</sub></code>
-2. Ортогонализовать <code>u<sub>j+1</sub></code> относительно <code>V<sub>j</sub></code> (получая <code>&alpha;<sub>j</sub></code>)
-3. <code>&beta;<sub>j+1</sub> = &#124;u<sub>j+1</sub>&#124;<sub>2</sub></code>
-4. Если <code>&beta;<sub>j+1</sub> = 0</code>, остановиться
-5. <code>v<sub>j+1</sub> = u<sub>j+1</sub> / &beta;<sub>j+1</sub></code>
+Для j = k + 1, &hellip;, m
+1. u<sub>j+1</sub> = Av<sub>j</sub>
+2. Ортогонализовать u<sub>j+1</sub> относительно V<sub>j</sub> (получая &alpha;<sub>j</sub>)
+3. &beta;<sub>j+1</sub> = &#124;u<sub>j+1</sub>&#124;<sub>2</sub>
+4. Если &beta;<sub>j+1</sub> = 0, остановиться
+5. v<sub>j+1</sub> = u<sub>j+1</sub> / &beta;<sub>j+1</sub>
    
-*Примечание*: Алгоритм 3 вычисляет только последние <code>m - k</code> столбцов матриц <code>V<sub>m</sub></code> и <code>T<sub>m</sub></code>, активную часть факторизации. Начальный вектор в данном случае — это <code>v<sub>k+1</sub></code>. Операции в цикле схожи с Алгоритмом 2, однако ортогонализация обязательно включает заблокированные векторы Ланцоша (дефляция).
+*Примечание*: Алгоритм 3 вычисляет только последние <code>m - k</code> столбцов матриц V<sub>m</sub> и T<sub>m</sub>, активную часть факторизации. Начальный вектор в данном случае — это v<sub>k+1</sub>. Операции в цикле схожи с Алгоритмом 2, однако ортогонализация обязательно включает заблокированные векторы Ланцоша (дефляция).
 
 ## Алгоритм 4 (Ланцош с явным перезапуском)
 
