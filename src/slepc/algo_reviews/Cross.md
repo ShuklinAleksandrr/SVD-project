@@ -1,4 +1,297 @@
 # Cross.c
+# 1. Введение
+Метод svd CrossMatrix основан на использовании кросс-матрицы:
+C = A * $A^T$, где A - исходная матрица, $A^T$ - ее транспонированная матрица.
+
+ 
+Из SLEPc использует собственные значения для определения структуры матрицы, вычисления сингулярных чисел и создания эффективной аппроксимации. Этот подход позволяет существенно сокращать размерность данных, сохраняя при этом основную информацию, что делает его полезным в различных областях науки и техники.
+
+Задача решается преимущественно для гиперболического и обобщеннго типов. Что дает нам воспользоваться формулой:
+
+$\sigma = \sqrt{|\lambda|}$, где $\lambda$ - собственное значение, $\sigma$ - сингялурное соотвествующее значение.
+
+Матрица A является гиперболически типа, если выполняются следующие условия:
+1. Все собственные значения λ_i действительные.
+2. Среди этих собственных значений есть хотя бы одно положительное и хотя бы одно отрицательное.
+
+Другими словами, если среди собственных значений матрицы есть как положительные, так и отрицательные, то такая матрица является гиперболическим типа.
+
+В библиотеке SLEPc реализованы для поиска собственных значений такие методы, как:
+- Krylov-Schur Method (KSP). 
+
+Этот метод является одним из основных в PETSc для решения систем линейных уравнений. Он использует итерационные методы, такие как GMRES, BiCGStab и другие, для нахождения собственных значений.
+
+- Generalized Minimal Residual Method (GMRES) 
+
+GMRES — это итерационный метод, используемый для решения систем линейных уравнений. Он эффективен для плохо обусловленных систем.
+
+- Biconjugate Gradient Stabilized Method (BiCGStab)
+
+BiCGStab — это еще один итерационный метод, который используется для решения системы линейных уравнений. Он также эффективен для плохо обусловленных систем.
+
+- Conjugate Gradient Method (CG)
+
+CG-метод используется для решения систем линейных уравнений с симметричными положительно определенными матрицами.
+
+- Preconditioned Conjugate Gradient Method (PCG)
+
+PCG-метод — это модификация CG-метода, использующая предобусловливание для улучшения сходимости.
+
+##### Выбор конкретного метода зависит от специфики вашей задачи и требований к производительности и точности.
+
+# 2. Описание алгоритма. 
+## Здесь мы рассмотрим 2 алгоритма-функции: 
+
+## Функция SVDSolve_Cross - Решает проблему сингулярного значения. 
+##### - Вначале находится собственное значение для кросс матрицы одним из выше представленных методов. Так же получаем количество сходящихся собственных значений (nconv), количество выполненных итераций (its) и причину сходимости (reason).
+##### - Затем проходясь по каждому собственному числу. Мы берем только вещественную часть собственного числа.
+##### - Определяем принадлежит ли наша задача к гиперболическому типу, если да то $\sigma = \sqrt{|\sigma|}$. 
+##### - Если нет, то проверяем проверяется больше ли $\sigma>-10* \epsilon$, где $\epsilon$ машинная точность. И выдается придупреждение об этом.
+##### - Затем если $\sigma<0.0$ выполняется неравенство, то $\sigma = 0.0$
+##### - Далее, берется корень из вещественно части $\sigma = \sqrt{\sigma}$
+
+```
+static PetscErrorCode SVDSolve_Cross(SVD svd)
+{
+  SVD_CROSS      *cross = (SVD_CROSS*)svd->data;
+  PetscInt       i;
+  PetscScalar    lambda;
+  PetscReal      sigma;
+
+  PetscFunctionBegin;
+  PetscCall(EPSSolve(cross->eps));
+  PetscCall(EPSGetConverged(cross->eps,&svd->nconv));
+  PetscCall(EPSGetIterationNumber(cross->eps,&svd->its));
+  PetscCall(EPSGetConvergedReason(cross->eps,(EPSConvergedReason*)&svd->reason));
+  for (i=0;i<svd->nconv;i++) {
+    PetscCall(EPSGetEigenvalue(cross->eps,i,&lambda,NULL));
+    sigma = PetscRealPart(lambda);
+    if (svd->ishyperbolic) svd->sigma[i] = PetscSqrtReal(PetscAbsReal(sigma));
+    else {
+      PetscCheck(sigma>-10*PETSC_MACHINE_EPSILON,PetscObjectComm((PetscObject)svd),PETSC_ERR_FP,"Negative eigenvalue computed by EPS: %g",(double)sigma);
+      if (sigma<0.0) {
+        PetscCall(PetscInfo(svd,"Negative eigenvalue computed by EPS: %g, resetting to 0\n",(double)sigma));
+        sigma = 0.0;
+      }
+      svd->sigma[i] = PetscSqrtReal(sigma);
+    }
+  }
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+```
+
+# Функция SVDComputeVectors_Cross(SVD svd) - вычисление сингулярных векторов для обобщённых задач, гиперболические задачи и стандартные задачи, возникающие в рамках метода сингулярного разложения.
+
+```
+static PetscErrorCode SVDComputeVectors_Cross(SVD svd)
+{
+  SVD_CROSS         *cross = (SVD_CROSS*)svd->data;
+  PetscInt          i,mloc,ploc;
+  Vec               u,v,x,uv,w,omega2=NULL;
+  Mat               Omega;
+  PetscScalar       *dst,alpha,lambda,*varray;
+  const PetscScalar *src;
+  PetscReal         nrm;
+
+  PetscFunctionBegin;
+  if (svd->isgeneralized) {
+    PetscCall(MatCreateVecs(svd->A,NULL,&u));
+    PetscCall(VecGetLocalSize(u,&mloc));
+    PetscCall(MatCreateVecs(svd->B,NULL,&v));
+    PetscCall(VecGetLocalSize(v,&ploc));
+    for (i=0;i<svd->nconv;i++) {
+      PetscCall(BVGetColumn(svd->V,i,&x));
+      PetscCall(EPSGetEigenpair(cross->eps,i,&lambda,NULL,x,NULL));
+      PetscCall(MatMult(svd->A,x,u));     /* u_i*c_i/alpha = A*x_i */
+      PetscCall(VecNormalize(u,NULL));
+      PetscCall(MatMult(svd->B,x,v));     /* v_i*s_i/alpha = B*x_i */
+      PetscCall(VecNormalize(v,&nrm));    /* ||v||_2 = s_i/alpha   */
+      alpha = 1.0/(PetscSqrtReal(1.0+PetscRealPart(lambda))*nrm);    /* alpha=s_i/||v||_2 */
+      PetscCall(VecScale(x,alpha));
+      PetscCall(BVRestoreColumn(svd->V,i,&x));
+      /* copy [u;v] to U[i] */
+      PetscCall(BVGetColumn(svd->U,i,&uv));
+      PetscCall(VecGetArrayWrite(uv,&dst));
+      PetscCall(VecGetArrayRead(u,&src));
+      PetscCall(PetscArraycpy(dst,src,mloc));
+      PetscCall(VecRestoreArrayRead(u,&src));
+      PetscCall(VecGetArrayRead(v,&src));
+      PetscCall(PetscArraycpy(dst+mloc,src,ploc));
+      PetscCall(VecRestoreArrayRead(v,&src));
+      PetscCall(VecRestoreArrayWrite(uv,&dst));
+      PetscCall(BVRestoreColumn(svd->U,i,&uv));
+    }
+    PetscCall(VecDestroy(&v));
+    PetscCall(VecDestroy(&u));
+  } else if (svd->ishyperbolic && svd->swapped) {  /* was solved as GHIEP, set u=Omega*u and normalize */
+    PetscCall(EPSGetOperators(cross->eps,NULL,&Omega));
+    PetscCall(MatCreateVecs(Omega,&w,NULL));
+    PetscCall(VecCreateSeq(PETSC_COMM_SELF,svd->ncv,&omega2));
+    PetscCall(VecGetArrayWrite(omega2,&varray));
+    for (i=0;i<svd->nconv;i++) {
+      PetscCall(BVGetColumn(svd->V,i,&v));
+      PetscCall(EPSGetEigenvector(cross->eps,i,v,NULL));
+      PetscCall(MatMult(Omega,v,w));
+      PetscCall(VecDot(v,w,&alpha));
+      svd->sign[i] = PetscSign(PetscRealPart(alpha));
+      varray[i] = svd->sign[i];
+      alpha = 1.0/PetscSqrtScalar(PetscAbsScalar(alpha));
+      PetscCall(VecScale(w,alpha));
+      PetscCall(VecCopy(w,v));
+      PetscCall(BVRestoreColumn(svd->V,i,&v));
+    }
+    PetscCall(BVSetSignature(svd->V,omega2));
+    PetscCall(VecRestoreArrayWrite(omega2,&varray));
+    PetscCall(VecDestroy(&omega2));
+    PetscCall(VecDestroy(&w));
+    PetscCall(SVDComputeVectors_Left(svd));
+  } else {
+    for (i=0;i<svd->nconv;i++) {
+      PetscCall(BVGetColumn(svd->V,i,&v));
+      PetscCall(EPSGetEigenvector(cross->eps,i,v,NULL));
+      PetscCall(BVRestoreColumn(svd->V,i,&v));
+    }
+    PetscCall(SVDComputeVectors_Left(svd));
+  }
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+```
+
+```
+ if (svd->isgeneralized) {
+    PetscCall(MatCreateVecs(svd->A,NULL,&u));
+    PetscCall(VecGetLocalSize(u,&mloc));
+    PetscCall(MatCreateVecs(svd->B,NULL,&v));
+    PetscCall(VecGetLocalSize(v,&ploc));
+```
+Если задача является обобщённой, создаются векторы u и v, совместимые с двумя матрицами A и B, а также определяется их размеры.
+
+```
+for (i=0;i<svd->nconv;i++) {
+```
+Для каждого собственного значения выполняется:
+```
+  PetscCall(BVGetColumn(svd->V,i,&x));
+  PetscCall(EPSGetEigenpair(cross->eps,i,&lambda,NULL,x,NULL));
+  PetscCall(MatMult(svd->A,x,u));    
+```
+Извлекается собственный вектор x и соответствующее ему собственное значение lambda.
+```
+  PetscCall(VecNormalize(u,NULL));
+  PetscCall(MatMult(svd->B,x,v));     
+```
+Производится нормализация вектора u и его умножение на скаляр alph.
+```
+  PetscCall(VecNormalize(v,&nrm));   
+```
+Вектор v нормализуется относительно собственного значения.
+```
+  alpha = 1.0/(PetscSqrtReal(1.0+PetscRealPart(lambda))*nrm);    
+```
+Скаляр alpha вычисляется на основе отношения между собственными значениями и нормами векторов.
+```
+  PetscCall(VecScale(x,alpha));
+```
+Собственный вектор x масштабируется на величину alpha.
+
+```
+  PetscCall(BVRestoreColumn(svd->V,i,&x));
+  PetscCall(BVGetColumn(svd->U,i,&uv));
+  PetscCall(VecGetArrayWrite(uv,&dst));
+  PetscCall(VecGetArrayRead(u,&src));
+  PetscCall(PetscArraycpy(dst,src,mloc));
+  PetscCall(VecRestoreArrayRead(u,&src));
+  PetscCall(VecGetArrayRead(v,&src));
+  PetscCall(PetscArraycpy(dst+mloc,src,ploc));
+  PetscCall(VecRestoreArrayRead(v,&src));
+  PetscCall(VecRestoreArrayWrite(uv,&dst));
+  PetscCall(BVRestoreColumn(svd->U,i,&uv));
+}
+```
+Вектор x сохраняется в соответствующем месте в пространстве собственных векторов.
+```
+PetscCall(VecDestroy(&v));
+PetscCall(VecDestroy(&u));
+```
+Векторы u,v удаляются.
+
+
+```
+} else if (svd->ishyperbolic && svd->swapped) {  
+```
+Если гиперболического типа
+```
+  PetscCall(EPSGetOperators(cross->eps,NULL,&Omega);
+``` 
+Вызывается EPSGetOperators для получения операторов задачи собственных значений.
+```
+  PetscCall(MatCreateVecs(Omega,&w,NULL));
+  PetscCall(VecCreateSeq(PETscCommSelf,svd->ncv,&omega2);
+  PetscCall(VecGetArrayWrite(omega2,&varray));
+```
+Создаются векторы w и omega2, а также массив varray для хранения значений.
+```
+  for (i=0;i<svd->nconv;i++) {
+```
+Для каждого собственного значения:
+```
+    PetscCall(BVGetColumn(svd->V,i,&v));
+    PetscCall(EPSGetEigenvector(cross->eps,i,v,NULL));
+```
+Извлекается собственный вектор v и соответствующий ему собственный вектор из EPS.
+```
+    PetscCall(MatMult(Omega,v,w));
+```
+Проводится умножение вектора v на матрицу Omega и сохранение результата в векторе w.
+```
+    PetscCall(VecDot(v,w,&alpha));
+```
+Вычисляет векторное скалярное произведение.
+```
+    svd->sign[i] = PetscSign(PetscRealPart(alpha));
+    varray[i] = svd->sign[i];
+```
+Определяется знак svd->sign исходя из знака произведения вектора на его преобразованный аналог.
+```
+    alpha = 1.0/PetscSqrtScalar(PetscAbsScalar(alpha));
+```
+alpha равно 1 делить на корень из модуля alpha.
+```
+    PetscCall(VecScale(w,alpha));
+```
+Вектор w масштабируется по величине, обратной корню от модуля собственного значения.
+```
+    PetscCall(VecCopy(w,v));
+    PetscCall(BVRestoreColumn(svd->V,i,&v));
+  }
+```
+Масштабированный вектор w копируется в вектор v, и продолжается цикл по всем собственным значениям.
+```
+  PetscCall(BVSetSignature(svd->V,omega2));
+  PetscCall(VecRestoreArrayWrite(omega2,&varray));
+```
+```
+  PetscCall(VecDestroy(&omega2));
+  PetscCall(VecDestroy(&w));
+```
+Вектор w удаляется, а также очищается массив varray
+```
+  PetscCall(SVDComputeVectors_Left(svd));
+```
+Вызывается функция SVDComputeVectors_Left, которая завершает обработку собственных векторов.
+
+```
+} else {
+    for (i=0;i<svd->nconv;i++) {
+      PetscCall(BVGetColumn(svd->V,i,&v));
+      PetscCall(EPSGetEigenvector(cross->eps,i,v,NULL));
+      PetscCall(BVRestoreColumn(svd->V,i,&v));
+    }
+    PetscCall(SVDComputeVectors_Left(svd));
+  }
+```
+Иначе по каждому значению, Вектор v извлекается из структуры svd->V, которая хранит собственные векторы. Затем вызывается функция EPSGetEigenvector, чтобы получить собственный вектор для текущего индекса i.
+
 ### Импортится обработчик ошибок:
 ``` #include <slepc/private/svdimpl.h> ``` 
 
@@ -11,6 +304,7 @@ typedef struct {
   Mat       C,D;
 } SVD_CROSS;
 ```
+
 Которая состоит: 
  - explicitmatrix - параметр, который отвечает является ли матрица явной или неявной, т.е. задана она в явном виде или нет. Что такое неявная матрица дальше.
  - eps - Решатель задач на собственные значения (EPS) — это основной объект, предоставляемый slepc. Он используется для задания линейной задачи на собственные значения в стандартной или обобщенной форме и обеспечивает единый и эффективный доступ ко всем линейным решателям собственных значений, включенным в пакет. Концептуально уровень абстракции, занимаемый EPS, аналогичен другим решателям в petsc, таким как KSP, для решения линейных систем уравнений. Модуль EPS в slepc используется аналогично модулям petsc, таким как KSP. Вся информация, связанная с задачей на собственные значения, обрабатывается через контекстную переменную. Доступны обычные функции управления объектами (EPSCreate, EPSDestroy, EPSView, EPSSetFromOptions). Кроме того, объект EPS предоставляет функции для установки нескольких параметров, таких как количество вычисляемых собственных значений, размерность подпространства, часть интересующего спектра, запрашиваемый допуск или максимальное количество разрешенных итераций. [1]
@@ -565,314 +859,6 @@ SVDCheckUnsupported(svd,SVD_FEATURE_STOPPING);
 Вызов SVDAllocateSolution выделяет память для хранения решения задачи собственных значений.
   PetscFunctionReturn(PETSC_SUCCESS);
 
-# Функция SVDSolve_Cross - Решает проблему сингулярного значения.
-
-```
-static PetscErrorCode SVDSolve_Cross(SVD svd)
-{
-  SVD_CROSS      *cross = (SVD_CROSS*)svd->data;
-  PetscInt       i;
-  PetscScalar    lambda;
-  PetscReal      sigma;
-
-  PetscFunctionBegin;
-  PetscCall(EPSSolve(cross->eps));
-  PetscCall(EPSGetConverged(cross->eps,&svd->nconv));
-  PetscCall(EPSGetIterationNumber(cross->eps,&svd->its));
-  PetscCall(EPSGetConvergedReason(cross->eps,(EPSConvergedReason*)&svd->reason));
-  for (i=0;i<svd->nconv;i++) {
-    PetscCall(EPSGetEigenvalue(cross->eps,i,&lambda,NULL));
-    sigma = PetscRealPart(lambda);
-    if (svd->ishyperbolic) svd->sigma[i] = PetscSqrtReal(PetscAbsReal(sigma));
-    else {
-      PetscCheck(sigma>-10*PETSC_MACHINE_EPSILON,PetscObjectComm((PetscObject)svd),PETSC_ERR_FP,"Negative eigenvalue computed by EPS: %g",(double)sigma);
-      if (sigma<0.0) {
-        PetscCall(PetscInfo(svd,"Negative eigenvalue computed by EPS: %g, resetting to 0\n",(double)sigma));
-        sigma = 0.0;
-      }
-      svd->sigma[i] = PetscSqrtReal(sigma);
-    }
-  }
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-```
-1) 
-```
-SVD_CROSS      *cross = (SVD_CROSS*)svd->data;
-  PetscInt       i;
-  PetscScalar    lambda;
-  PetscReal      sigma;
-
-  PetscFunctionBegin;
-``` 
-Иницилиазация параметров
-2)
-```
-PetscCall(EPSSolve(cross->eps));
-```
-Вызываем EPSSolve, чтобы решить задачу собственных значений с использованием объекта EPS, который находится в структуре cross.
-```
-PetscCall(EPSGetConverged(cross->eps,&svd->nconv));
-PetscCall(EPSGetIterationNumber(cross->eps,&svd->its));
-PetscCall(EPSGetConvergedReason(cross->eps,(EPSConvergedReason*)&svd->reason));
-```
-Мы получаем количество сходящихся собственных значений (nconv), количество выполненных итераций (its) и причину сходимости (reason).
-
-```
-for (i=0;i<svd->nconv;i++) {
-```
-Проход по каждому из сходящихся собственных значений.
-```
-    PetscCall(EPSGetEigenvalue(cross->eps,i,&lambda,NULL));
-    sigma = PetscRealPart(lambda);
-```
-Получение собственного значения lambda и извлечение его вещественной части sigma.
-```
-    if (svd->ishyperbolic) svd->sigma[i] = PetscSqrtReal(PetscAbsReal(sigma));
-```
-Если задача гиперболическая, вычисляем квадратный корень модуля sigma и сохраняем результат в массив svd->sigma.
-```
-    else {
-      PetscCheck(sigma>-10*PETSC_MACHINE_EPSILON,PetscObjectComm((PetscObject)svd),PETSC_ERR_FP,"Negative eigenvalue computed by EPS: %g",(double)sigma);
-```
-В противном случае проверяем, что sigma >= -10*PETSC_MACHINE_EPSILON, чтобы избежать вычислительных ошибок.
-```
-      if (sigma<0.0) {
-        PetscCall(PetscInfo(svd,"Negative eigenvalue computed by EPS: %g, resetting to 0\n",(double)sigma));
-        sigma = 0.0;
-      }
-```
-Если sigma < 0, выводим предупреждение и сбрасываем sigma до нуля.
-```
-      svd->sigma[i] = PetscSqrtReal(sigma);
-```
-Сохраняем квадратный корень из sigma в массиве svd->sigma для каждого собственного значения.
-
-# Функция SVDComputeVectors_Cross(SVD svd) - вычисление собственных векторов для обобщённых задач, гиперболические задачи и стандартные задачи, возникающие в рамках метода сингулярного разложения.
-
-```
-static PetscErrorCode SVDComputeVectors_Cross(SVD svd)
-{
-  SVD_CROSS         *cross = (SVD_CROSS*)svd->data;
-  PetscInt          i,mloc,ploc;
-  Vec               u,v,x,uv,w,omega2=NULL;
-  Mat               Omega;
-  PetscScalar       *dst,alpha,lambda,*varray;
-  const PetscScalar *src;
-  PetscReal         nrm;
-
-  PetscFunctionBegin;
-  if (svd->isgeneralized) {
-    PetscCall(MatCreateVecs(svd->A,NULL,&u));
-    PetscCall(VecGetLocalSize(u,&mloc));
-    PetscCall(MatCreateVecs(svd->B,NULL,&v));
-    PetscCall(VecGetLocalSize(v,&ploc));
-    for (i=0;i<svd->nconv;i++) {
-      PetscCall(BVGetColumn(svd->V,i,&x));
-      PetscCall(EPSGetEigenpair(cross->eps,i,&lambda,NULL,x,NULL));
-      PetscCall(MatMult(svd->A,x,u));     /* u_i*c_i/alpha = A*x_i */
-      PetscCall(VecNormalize(u,NULL));
-      PetscCall(MatMult(svd->B,x,v));     /* v_i*s_i/alpha = B*x_i */
-      PetscCall(VecNormalize(v,&nrm));    /* ||v||_2 = s_i/alpha   */
-      alpha = 1.0/(PetscSqrtReal(1.0+PetscRealPart(lambda))*nrm);    /* alpha=s_i/||v||_2 */
-      PetscCall(VecScale(x,alpha));
-      PetscCall(BVRestoreColumn(svd->V,i,&x));
-      /* copy [u;v] to U[i] */
-      PetscCall(BVGetColumn(svd->U,i,&uv));
-      PetscCall(VecGetArrayWrite(uv,&dst));
-      PetscCall(VecGetArrayRead(u,&src));
-      PetscCall(PetscArraycpy(dst,src,mloc));
-      PetscCall(VecRestoreArrayRead(u,&src));
-      PetscCall(VecGetArrayRead(v,&src));
-      PetscCall(PetscArraycpy(dst+mloc,src,ploc));
-      PetscCall(VecRestoreArrayRead(v,&src));
-      PetscCall(VecRestoreArrayWrite(uv,&dst));
-      PetscCall(BVRestoreColumn(svd->U,i,&uv));
-    }
-    PetscCall(VecDestroy(&v));
-    PetscCall(VecDestroy(&u));
-  } else if (svd->ishyperbolic && svd->swapped) {  /* was solved as GHIEP, set u=Omega*u and normalize */
-    PetscCall(EPSGetOperators(cross->eps,NULL,&Omega));
-    PetscCall(MatCreateVecs(Omega,&w,NULL));
-    PetscCall(VecCreateSeq(PETSC_COMM_SELF,svd->ncv,&omega2));
-    PetscCall(VecGetArrayWrite(omega2,&varray));
-    for (i=0;i<svd->nconv;i++) {
-      PetscCall(BVGetColumn(svd->V,i,&v));
-      PetscCall(EPSGetEigenvector(cross->eps,i,v,NULL));
-      PetscCall(MatMult(Omega,v,w));
-      PetscCall(VecDot(v,w,&alpha));
-      svd->sign[i] = PetscSign(PetscRealPart(alpha));
-      varray[i] = svd->sign[i];
-      alpha = 1.0/PetscSqrtScalar(PetscAbsScalar(alpha));
-      PetscCall(VecScale(w,alpha));
-      PetscCall(VecCopy(w,v));
-      PetscCall(BVRestoreColumn(svd->V,i,&v));
-    }
-    PetscCall(BVSetSignature(svd->V,omega2));
-    PetscCall(VecRestoreArrayWrite(omega2,&varray));
-    PetscCall(VecDestroy(&omega2));
-    PetscCall(VecDestroy(&w));
-    PetscCall(SVDComputeVectors_Left(svd));
-  } else {
-    for (i=0;i<svd->nconv;i++) {
-      PetscCall(BVGetColumn(svd->V,i,&v));
-      PetscCall(EPSGetEigenvector(cross->eps,i,v,NULL));
-      PetscCall(BVRestoreColumn(svd->V,i,&v));
-    }
-    PetscCall(SVDComputeVectors_Left(svd));
-  }
-  PetscFunctionReturn(PETSC_SUCCESS);
-}
-```
-
-1)  
-```
-SVD_CROSS         *cross = (SVD_CROSS*)svd->data;
-  PetscInt          i,mloc,ploc;
-  Vec               u,v,x,uv,w,omega2=NULL;
-  Mat               Omega;
-  PetscScalar       *dst,alpha,lambda,*varray;
-  const PetscScalar *src;
-  PetscReal         nrm;
-
-  PetscFunctionBegin;
-```
-Cоздаются переменные для хранения индексов, векторов, матриц и скаляров, 
-2) 
-```
- if (svd->isgeneralized) {
-    PetscCall(MatCreateVecs(svd->A,NULL,&u));
-    PetscCall(VecGetLocalSize(u,&mloc));
-    PetscCall(MatCreateVecs(svd->B,NULL,&v));
-    PetscCall(VecGetLocalSize(v,&ploc));
-```
-Если задача является обобщённой, создаются векторы u и v, совместимые с двумя матрицами A и B, а также определяется их локальный размер.
-
-```
-for (i=0;i<svd->nconv;i++) {
-```
-По всем найденным собственным значениям:
-```
-  PetscCall(BVGetColumn(svd->V,i,&x));
-  PetscCall(EPSGetEigenpair(cross->eps,i,&lambda,NULL,x,NULL));
-  PetscCall(MatMult(svd->A,x,u));    
-```
-Извлекается собственный вектор x и соответствующее ему собственное значение lambda.
-```
-  PetscCall(VecNormalize(u,NULL));
-  PetscCall(MatMult(svd->B,x,v));     
-```
-Производится нормализация вектора u и его умножение на скаляр alpha, связанный с собственным значением.
-```
-  PetscCall(VecNormalize(v,&nrm));   
-```
-Вектор v нормализуется относительно собственного значения.
-```
-  alpha = 1.0/(PetscSqrtReal(1.0+PetscRealPart(lambda))*nrm);    
-```
-Скаляр alpha вычисляется на основе отношения между собственными значениями и нормами векторов.
-```
-  PetscCall(VecScale(x,alpha));
-```
-Собственный вектор x масштабируется на величину alpha.
-
-```
-  PetscCall(BVRestoreColumn(svd->V,i,&x));
-  PetscCall(BVGetColumn(svd->U,i,&uv));
-  PetscCall(VecGetArrayWrite(uv,&dst));
-  PetscCall(VecGetArrayRead(u,&src));
-  PetscCall(PetscArraycpy(dst,src,mloc));
-  PetscCall(VecRestoreArrayRead(u,&src));
-  PetscCall(VecGetArrayRead(v,&src));
-  PetscCall(PetscArraycpy(dst+mloc,src,ploc));
-  PetscCall(VecRestoreArrayRead(v,&src));
-  PetscCall(VecRestoreArrayWrite(uv,&dst));
-  PetscCall(BVRestoreColumn(svd->U,i,&uv));
-}
-```
-Вектор x сохраняется в соответствующем месте в пространстве собственных векторов.
-```
-PetscCall(VecDestroy(&v));
-PetscCall(VecDestroy(&u));
-```
-Векторы u,v удаляются.
-
-
-```
-} else if (svd->ishyperbolic && svd->swapped) {  
-```
-Если гиперболического типа
-```
-  PetscCall(EPSGetOperators(cross->eps,NULL,&Omega);
-``` 
-Вызывается EPSGetOperators для получения операторов задачи собственных значений.
-```
-  PetscCall(MatCreateVecs(Omega,&w,NULL));
-  PetscCall(VecCreateSeq(PETscCommSelf,svd->ncv,&omega2);
-  PetscCall(VecGetArrayWrite(omega2,&varray));
-```
-Создаются векторы w и omega2, а также массив varray для хранения значений.
-```
-  for (i=0;i<svd->nconv;i++) {
-```
-Для каждого собственного значения:
-```
-    PetscCall(BVGetColumn(svd->V,i,&v));
-    PetscCall(EPSGetEigenvector(cross->eps,i,v,NULL));
-```
-Извлекается собственный вектор v и соответствующий ему собственный вектор из EPS.
-```
-    PetscCall(MatMult(Omega,v,w));
-```
-Проводится умножение вектора v на матрицу Omega и сохранение результата в векторе w.
-```
-    PetscCall(VecDot(v,w,&alpha));
-```
-Вычисляет векторное скалярное произведение.
-```
-    svd->sign[i] = PetscSign(PetscRealPart(alpha));
-    varray[i] = svd->sign[i];
-```
-Определяется знак svd->sign исходя из знака произведения вектора на его преобразованный аналог.
-```
-    alpha = 1.0/PetscSqrtScalar(PetscAbsScalar(alpha));
-```
-alpha равно 1 делить на корень из модуля alpha.
-```
-    PetscCall(VecScale(w,alpha));
-```
-Вектор w масштабируется по величине, обратной корню от модуля собственного значения.
-```
-    PetscCall(VecCopy(w,v));
-    PetscCall(BVRestoreColumn(svd->V,i,&v));
-  }
-```
-Масштабированный вектор w копируется в вектор v, и продолжается цикл по всем собственным значениям.
-```
-  PetscCall(BVSetSignature(svd->V,omega2));
-  PetscCall(VecRestoreArrayWrite(omega2,&varray));
-```
-```
-  PetscCall(VecDestroy(&omega2));
-  PetscCall(VecDestroy(&w));
-```
-Вектор w удаляется, а также очищается массив varray
-```
-  PetscCall(SVDComputeVectors_Left(svd));
-```
-Вызывается функция SVDComputeVectors_Left, которая завершает обработку собственных векторов.
-
-```
-} else {
-    for (i=0;i<svd->nconv;i++) {
-      PetscCall(BVGetColumn(svd->V,i,&v));
-      PetscCall(EPSGetEigenvector(cross->eps,i,v,NULL));
-      PetscCall(BVRestoreColumn(svd->V,i,&v));
-    }
-    PetscCall(SVDComputeVectors_Left(svd));
-  }
-```
-Иначе по каждому значению, Вектор v извлекается из структуры svd->V, которая хранит собственные векторы. Затем вызывается функция EPSGetEigenvector, чтобы получить собственный вектор для текущего индекса i.
 
 # Фукнция EPSMonitor_Cross(EPS eps,PetscInt its,PetscInt nconv,PetscScalar *eigr,PetscScalar *eigi,PetscReal *errest,PetscInt nest,void *ctx) - контролирует процесс решения задачи собственных значений путем мониторинга ошибок на каждом уровне вложенности и обновления соответствующих метрик, таких как точность и ошибка.
 ```
