@@ -1,6 +1,4 @@
 ## Введение ##
-Метод Ланцоша связан с методом Арнольди в том смысле, что Ланцош можно рассматривать как частный случай метода Арнольди, когда матрица симметрична. По этой причине у обоих методов есть общие аспекты. Для подробного описания метода Арнольди см. технический отчёт slepc STR-4, “Arnoldi Methods in slepc”.
-
 Этот отчёт не включает материалы о несимметричной версии метода Ланцоша. Собственные значения, основанные на этом методе, могут быть добавлены в будущие версии slepc.
 Важные определения:
 <p>Подпространство Крылова - линейное пространство, порождённое вектором v &in; C <sup>n</sup> и матрицей A &in;
@@ -279,9 +277,141 @@ PetscFunctionBegin;
 ### SVDOneSideLanczos ###
 Входные данные почти теже, добавляется u_1 это вектор который будет спользоваться для хранения промежуточных значений
 <p><code>
-  
-</code></p>
+  static PetscErrorCode SVDOneSideLanczos(SVD svd, PetscReal *alpha, PetscReal *beta, BV V, Vec u, Vec u_1, PetscInt k, PetscInt n, PetscScalar *work)
+{
+  PetscInt i, bvl, bvk;
+  PetscReal a, b;
+  Vec z, temp;
 
+  PetscFunctionBegin;
+  PetscCall(BVGetActiveColumns(V, &bvl, &bvk));
+</code></p>
+Объявляются переменные и задаётся срез столбцов с которым будем работать.
+<p><code>
+  PetscCall(BVGetColumn(V, k, &z));
+  PetscCall(MatMult(svd->A, z, u));
+  PetscCall(BVRestoreColumn(V, k, &z));
+</code></p>
+Умножение к-го стоблца матрицы V на матрицу А
+<p><code>
+    for (i = k + 1; i < n; i++) {
+    PetscCall(BVGetColumn(V, i, &z));
+    PetscCall(MatMult(svd->AT, u, z));
+    PetscCall(BVRestoreColumn(V, i, &z));
+    PetscCall(VecNormBegin(u, NORM_2, &a));
+    PetscCall(BVSetActiveColumns(V, 0, i));
+    PetscCall(BVDotColumnBegin(V, i, work));
+    PetscCall(VecNormEnd(u, NORM_2, &a));
+    PetscCall(BVDotColumnEnd(V, i, work));
+    PetscCall(VecScale(u, 1.0 / a));
+    PetscCall(BVMultColumn(V, -1.0 / a, 1.0 / a, i, work));
+</code></p>
+Цикл, который идет от k + 1 до n, и на каждом шаге выполняются следующие действия:
+Извлекается i-я колонка из V, умножается на транспонированную матрицу А.
+Далее происходит нормализация вектора U с помощью VecNormBegin и VecNormEnd для вычисления его нормы. Затем Вектор нормализуется: каждый элемент вектора U делится на его норму.
+<p><code>
+      PetscCall(BVDotColumn(V, i, work));
+    PetscCall(BVMultColumn(V, -1.0, 1.0, i, work));
+    PetscCall(BVNormColumn(V, i, NORM_2, &b));
+    PetscCheck(PetscAbsReal(b) > 10 * PETSC_MACHINE_EPSILON,     
+    PetscObjectComm((PetscObject)svd), PETSC_ERR_PLIB, "Recurrence generated a zero vector; use a two-sided variant");
+    PetscCall(BVScaleColumn(V, i, 1.0 / b));
+</code></p>
+Ортогонализация i-того столбца.
+Если после ортогонализации вектор становится очень малым (меньше определенного порога), возникает ошибка, и предлагается использовать двухсторонний метод.
+<p><code>
+    PetscCall(BVGetColumn(V, i, &z));
+    PetscCall(MatMult(svd->A, z, u_1));
+    PetscCall(BVRestoreColumn(V, i, &z));
+    PetscCall(VecAXPY(u_1, -b, u));
+    alpha[i - 1] = a;
+    beta[i - 1] = b;
+    temp = u;
+    u = u_1;
+    u_1 = temp;
+  }
+</code></p>
+Обновляется вектор u_1 с помощью матричного умножения.
+векторы u и u_1 меняются местами.
+Коэффициенты a и b сохраняются в массивы.
+<p><code>
+  PetscCall(BVGetColumn(V, n, &z));
+  PetscCall(MatMult(svd->AT, u, z));
+  PetscCall(BVRestoreColumn(V, n, &z));
+  PetscCall(VecNormBegin(u, NORM_2, &a));
+  PetscCall(BVDotColumnBegin(V, n, work));
+  PetscCall(VecNormEnd(u, NORM_2, &a));
+  PetscCall(BVDotColumnEnd(V, n, work));
+  PetscCall(VecScale(u, 1.0 / a));
+  PetscCall(BVMultColumn(V, -1.0 / a, 1.0 / a, n, work));
+  PetscCall(BVDotColumn(V, n, work));
+  PetscCall(BVMultColumn(V, -1.0, 1.0, n, work));
+  PetscCall(BVNormColumn(V, i, NORM_2, &b));
+
+  alpha[n - 1] = a;
+  beta[n - 1] = b;
+  PetscCall(BVSetActiveColumns(V, bvl, bvk));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+</code></p>
+Для последней итерации нормализуется вектор и выполняется ортогонализация с использованием транспонированной матрицы A. В конце восстанавливается активный диапазон столбцов в матрице V.
+
+### SVDSolve_Lanczos ###
+Эта функция реализует основной алгоритм для решения задачи сингулярных значений методом Ланцоша.
+<p><code>
+  PetscCall(DSGetLeadingDimension(svd->ds, &ld));
+  PetscCall(PetscMalloc2(ld, &w, svd->ncv, &swork));
+  if (lanczos->oneside) {
+    PetscCall(MatCreateVecs(svd->A, NULL, &u));
+    PetscCall(MatCreateVecs(svd->A, NULL, &u_1));
+}
+  if (!svd->nini) {
+    PetscCall(BVSetRandomColumn(svd->V, 0));
+    PetscCall(BVOrthonormalizeColumn(svd->V, 0, PETSC_TRUE, NULL, NULL));
+}
+</code></p>
+Получается ведущая размерность и выделяется память для массивов w и swork.
+Создаются вектора для одностороннего метода.
+Если начальный вектор не задан, инициализируется случайным вектором и ортонормализуется.
+Далее идёт основной итерационный цикл:
+<p><code>
+  while (svd->reason == SVD_CONVERGED_ITERATING) {
+    svd->its++;
+    nv = PetscMin(svd->nconv + svd->mpd, svd->ncv);
+    PetscCall(DSGetArrayReal(svd->ds, DS_MAT_T, &alpha));
+    beta = alpha + ld;
+    if (lanczos->oneside) {
+    PetscCall(SVDOneSideLanczos(svd, alpha, beta, svd->V, u, u_1, svd->nconv, nv, swork));
+    } else {
+    PetscCall(SVDTwoSideLanczos(svd, alpha, beta, svd->V, svd->U, svd->nconv, &nv, NULL));
+    PetscCall(BVSetActiveColumns(svd->U, svd->nconv, nv));
+    }    
+</code></p>
+Устанавливется размерность, после чего выделяется память под массивы alpha и beta.
+Вызывается односторонний или двусторонний алгоритм Ланцоша в зависимости от выбранного метода.
+Далее идёт сингулярное разложения матрицы T:
+<p><code>
+  PetscCall(DSSetDimensions(svd->ds, nv, svd->nconv, 0));
+  PetscCall(DSSVDSetDimensions(svd->ds, nv));
+  PetscCall(SVDKrylovConvergence(svd, PETSC_FALSE, svd->nconv, nv - svd->nconv, 1.0, &k));
+  if (svd->reason == SVD_CONVERGED_ITERATING) {
+    if (k < nv) {
+        PetscCall(DSGetArray(svd->ds, DS_MAT_V, &P));
+        for (j = svd->nconv; j < nv; j++) swork[j - svd->nconv] = PetscConj(P[j + k * ld]);
+        PetscCall(DSRestoreArray(svd->ds, DS_MAT_V, &P));
+        PetscCall(BVMultColumn(svd->V, 1.0, 0.0, nv, swork));
+    } else {
+        PetscCall(BVSetRandomColumn(svd->V, nv));
+        PetscCall(BVOrthonormalizeColumn(svd->V, nv, PETSC_FALSE, NULL, NULL));
+    }
+  }
+  PetscCall(DSGetMat(svd->ds, DS_MAT_V, &V));
+  PetscCall(BVMultInPlace(svd->V, V, svd->nconv, k));
+  PetscCall(VecDestroy(&u));
+  PetscCall(VecDestroy(&u_1));
+  PetscCall(PetscFree2(w, swork));
+</code></p>
+Матрица Т проходит сингулярное разложение, проверяется сходимость, если сходимость не доснигнута, генерируется новый начальный вектор,затем вычесляются вингулярные вектора и очищается память.
 ## Список литературы ##
 <p>Lanczos and the Riemannian SVD in information retrieval applications-Fierro-Jiang-2005.pdf</p>
 <p><a href="https://slepc.upv.es/documentation/reports/str5.pdf">Lanczos Methods in SLEPc</a></p>
